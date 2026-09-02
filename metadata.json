@@ -1,0 +1,6 @@
+{
+  "name": "Camera Pro",
+  "description": "Professional camera with manual controls, real aspect ratio preview, photo and video modes, and device lens detection.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

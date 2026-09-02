@@ -1,0 +1,1193 @@
+package com.example.camera.engine
+
+import android.annotation.SuppressLint
+import android.content.ContentValues
+import android.content.Context
+import android.graphics.ImageFormat
+import android.graphics.Rect
+import android.graphics.SurfaceTexture
+import android.hardware.camera2.*
+import android.hardware.camera2.params.MeteringRectangle
+import android.hardware.camera2.params.StreamConfigurationMap
+import android.media.CamcorderProfile
+import android.media.Image
+import android.media.ImageReader
+import android.media.MediaRecorder
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.ParcelFileDescriptor
+import android.os.StatFs
+import android.provider.MediaStore
+import android.util.Log
+import android.util.Range
+import android.util.Size
+import android.view.Surface
+import com.example.camera.model.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
+import java.io.FileOutputStream
+import java.io.OutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.max
+import kotlin.math.min
+
+private const val TAG = "Camera2Engine"
+
+class Camera2Engine(private val context: Context) {
+
+    private val cameraManager: CameraManager =
+        context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+
+    // Background threads
+    private var backgroundThread: HandlerThread? = null
+    private var backgroundHandler: Handler? = null
+
+    // Camera instances
+    private var cameraDevice: CameraDevice? = null
+    private var captureSession: CameraCaptureSession? = null
+    private var previewRequestBuilder: CaptureRequest.Builder? = null
+
+    // Surfaces & Readers
+    private var previewSurfaceTexture: SurfaceTexture? = null
+    private var previewSurface: Surface? = null
+    private var imageReaderJpeg: ImageReader? = null
+    private var imageReaderRaw: ImageReader? = null
+    private var mediaRecorder: MediaRecorder? = null
+    private var videoRecordingFileDescriptor: ParcelFileDescriptor? = null
+    private var currentVideoUri: Uri? = null
+
+    // State Flows
+    private val _availableLenses = MutableStateFlow<List<LensInfo>>(emptyList())
+    val availableLenses: StateFlow<List<LensInfo>> = _availableLenses.asStateFlow()
+
+    private val _selectedLens = MutableStateFlow<LensInfo?>(null)
+    val selectedLens: StateFlow<LensInfo?> = _selectedLens.asStateFlow()
+
+    private val _capabilities = MutableStateFlow(HardwareCapabilities())
+    val capabilities: StateFlow<HardwareCapabilities> = _capabilities.asStateFlow()
+
+    private val _selectedPhotoResolution = MutableStateFlow<CameraResolution?>(null)
+    val selectedPhotoResolution: StateFlow<CameraResolution?> = _selectedPhotoResolution.asStateFlow()
+
+    private val _selectedVideoResolution = MutableStateFlow<CameraResolution?>(null)
+    val selectedVideoResolution: StateFlow<CameraResolution?> = _selectedVideoResolution.asStateFlow()
+
+    private val _storageStats = MutableStateFlow(StorageStats())
+    val storageStats: StateFlow<StorageStats> = _storageStats.asStateFlow()
+
+    private val _isRecordingVideo = MutableStateFlow(false)
+    val isRecordingVideo: StateFlow<Boolean> = _isRecordingVideo.asStateFlow()
+
+    private val _videoDurationSeconds = MutableStateFlow(0)
+    val videoDurationSeconds: StateFlow<Int> = _videoDurationSeconds.asStateFlow()
+
+    private val _lastCapturedMedia = MutableStateFlow<CapturedMedia?>(null)
+    val lastCapturedMedia: StateFlow<CapturedMedia?> = _lastCapturedMedia.asStateFlow()
+
+    private val _isCameraReady = MutableStateFlow(false)
+    val isCameraReady: StateFlow<Boolean> = _isCameraReady.asStateFlow()
+
+    private val _isCapturing = MutableStateFlow(false)
+    val isCapturing: StateFlow<Boolean> = _isCapturing.asStateFlow()
+
+    private val _previewAspectRatio = MutableStateFlow(4f / 3f)
+    val previewAspectRatio: StateFlow<Float> = _previewAspectRatio.asStateFlow()
+
+    private var videoTimerJob: Job? = null
+    private val engineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    // Capture Settings State
+    var currentMode: CameraMode = CameraMode.PHOTO
+    var flashMode: FlashMode = FlashMode.OFF
+    var whiteBalanceMode: WhiteBalanceMode = WhiteBalanceMode.AUTO
+    var focusMode: FocusMode = FocusMode.CONTINUOUS
+    var manualFocusDistance: Float = 0f // 0 = infinity, max = closest
+    var manualIso: Int? = null // null = auto
+    var manualExposureTimeNs: Long? = null // null = auto
+    var exposureCompensationIndex: Int = 0
+    var isAeLocked: Boolean = false
+    var isAfLocked: Boolean = false
+    var isRawCaptureEnabled: Boolean = false
+    var isVideoStabilizationEnabled: Boolean = true
+    var videoBitrateOption: VideoBitrateOption = VideoBitrateOption.AUTO
+    var videoFps: Int = 30
+    var colorProfile: ColorProfile = ColorProfile.STANDARD
+    var isAudioEnabled: Boolean = true
+    var currentZoom: Float = 1.0f
+
+    init {
+        startBackgroundThread()
+        detectHardwareLenses()
+        updateStorageStats()
+    }
+
+    private fun startBackgroundThread() {
+        if (backgroundThread == null) {
+            backgroundThread = HandlerThread("Camera2Background").apply {
+                start()
+                backgroundHandler = Handler(looper)
+            }
+        }
+    }
+
+    private fun stopBackgroundThread() {
+        backgroundThread?.quitSafely()
+        try {
+            backgroundThread?.join(500)
+            backgroundThread = null
+            backgroundHandler = null
+        } catch (e: InterruptedException) {
+            Log.e(TAG, "Error stopping background thread", e)
+        }
+    }
+
+    /**
+     * Detects all real physical and logical lenses available on the device.
+     */
+    fun detectHardwareLenses() {
+        try {
+            val cameraIds = cameraManager.cameraIdList
+            val lenses = mutableListOf<LensInfo>()
+
+            for (id in cameraIds) {
+                val chars = cameraManager.getCameraCharacteristics(id)
+                val facing = chars.get(CameraCharacteristics.LENS_FACING) ?: continue
+                val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS) ?: floatArrayOf(4.0f)
+                val apertures = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES) ?: floatArrayOf(1.8f)
+                val sensorSize = chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+
+                val focalMm = focalLengths.firstOrNull() ?: 4.0f
+                val maxAperture = apertures.firstOrNull() ?: 1.8f
+
+                // Approximate 35mm equivalent focal length to classify lens type
+                val cropFactor = if (sensorSize != null && sensorSize.width > 0) {
+                    36f / sensorSize.width
+                } else {
+                    7f // typical mobile sensor crop factor
+                }
+                val eq35mm = focalMm * cropFactor
+
+                val lensType = when {
+                    facing == CameraCharacteristics.LENS_FACING_FRONT -> LensType.FRONT
+                    eq35mm < 22f || focalMm < 2.5f -> LensType.ULTRAWIDE
+                    eq35mm >= 70f || focalMm >= 9.0f -> LensType.TELEPHOTO_3X
+                    eq35mm >= 45f || focalMm >= 6.0f -> LensType.TELEPHOTO
+                    focalMm < 3.0f && (chars.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f) > 10f -> LensType.MACRO
+                    else -> LensType.WIDE
+                }
+
+                val displayName = when (lensType) {
+                    LensType.FRONT -> "Front Selfie (f/${maxAperture})"
+                    LensType.ULTRAWIDE -> "0.5x Ultra Wide (${focalMm}mm f/${maxAperture})"
+                    LensType.WIDE -> "1x Main (${focalMm}mm f/${maxAperture})"
+                    LensType.TELEPHOTO -> "2x Telephoto (${focalMm}mm f/${maxAperture})"
+                    LensType.TELEPHOTO_3X -> "3x Telephoto (${focalMm}mm f/${maxAperture})"
+                    LensType.MACRO -> "Macro (${focalMm}mm)"
+                }
+
+                lenses.add(
+                    LensInfo(
+                        cameraId = id,
+                        facing = facing,
+                        lensType = lensType,
+                        displayName = displayName,
+                        focalLengthMm = focalMm,
+                        maxAperture = maxAperture,
+                        isPhysical = false
+                    )
+                )
+
+                // Check physical cameras if multi-camera is supported (Android 9+)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    val physicalCameraIds = chars.physicalCameraIds
+                    if (physicalCameraIds.isNotEmpty()) {
+                        for (physId in physicalCameraIds) {
+                            if (lenses.none { it.cameraId == physId }) {
+                                try {
+                                    val physChars = cameraManager.getCameraCharacteristics(physId)
+                                    val pFacing = physChars.get(CameraCharacteristics.LENS_FACING) ?: facing
+                                    val pFocal = physChars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull() ?: 4f
+                                    val pAperture = physChars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)?.firstOrNull() ?: 1.8f
+                                    val pSensor = physChars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+                                    val pCrop = if (pSensor != null && pSensor.width > 0) 36f / pSensor.width else 7f
+                                    val pEq35 = pFocal * pCrop
+
+                                    val pType = when {
+                                        pFacing == CameraCharacteristics.LENS_FACING_FRONT -> LensType.FRONT
+                                        pEq35 < 22f || pFocal < 2.5f -> LensType.ULTRAWIDE
+                                        pEq35 >= 70f || pFocal >= 9.0f -> LensType.TELEPHOTO_3X
+                                        pEq35 >= 45f || pFocal >= 6.0f -> LensType.TELEPHOTO
+                                        else -> LensType.WIDE
+                                    }
+
+                                    lenses.add(
+                                        LensInfo(
+                                            cameraId = physId,
+                                            facing = pFacing,
+                                            lensType = pType,
+                                            displayName = "Physical $physId (${pType.shortLabel})",
+                                            focalLengthMm = pFocal,
+                                            maxAperture = pAperture,
+                                            isPhysical = true
+                                        )
+                                    )
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Error inspecting physical camera $physId", e)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            _availableLenses.value = lenses
+            // Select default back main camera, or first camera
+            val defaultLens = lenses.firstOrNull { it.facing == CameraCharacteristics.LENS_FACING_BACK && it.lensType == LensType.WIDE }
+                ?: lenses.firstOrNull { it.facing == CameraCharacteristics.LENS_FACING_BACK }
+                ?: lenses.firstOrNull()
+
+            _selectedLens.value = defaultLens
+            if (defaultLens != null) {
+                inspectCapabilities(defaultLens.cameraId)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to detect hardware lenses", e)
+        }
+    }
+
+    /**
+     * Inspects actual hardware capabilities of the given camera ID.
+     */
+    fun inspectCapabilities(cameraId: String) {
+        try {
+            val chars = cameraManager.getCameraCharacteristics(cameraId)
+            val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+
+            val caps = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: intArrayOf()
+            val hasManualSensor = caps.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR)
+            val hasRaw = caps.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW)
+
+            val isoRange = chars.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE) ?: Range(100, 3200)
+            val exposureTimeRange = chars.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE) ?: Range(100_000L, 1_000_000_000L)
+            val aeCompRange = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE) ?: Range(-4, 4)
+            val aeCompStep = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)?.toFloat() ?: 0.333f
+            val minFocus = chars.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f
+            val flashAvailable = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) ?: false
+            val maxZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 8f
+
+            // OIS / EIS
+            val oisModes = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION) ?: intArrayOf()
+            val eisModes = chars.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES) ?: intArrayOf()
+            val hasOis = oisModes.contains(CameraCharacteristics.LENS_OPTICAL_STABILIZATION_MODE_ON)
+            val hasEis = eisModes.contains(CameraCharacteristics.CONTROL_VIDEO_STABILIZATION_MODE_ON)
+
+            // AWB modes
+            val availableAwb = chars.get(CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES) ?: intArrayOf()
+            val awbModes = WhiteBalanceMode.entries.filter { availableAwb.contains(it.camera2Mode) }
+
+            // AF modes
+            val availableAf = chars.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
+            val afModes = FocusMode.entries.filter { availableAf.contains(it.camera2Mode) }
+
+            // Photo JPEG Resolutions
+            val jpegSizes = map?.getOutputSizes(ImageFormat.JPEG) ?: emptyArray()
+            val photoResolutions = jpegSizes
+                .sortedByDescending { it.width * it.height }
+                .distinctBy { "${it.width}x${it.height}" }
+                .map { CameraResolution(it.width, it.height, ImageFormat.JPEG, isRaw = false) }
+
+            // RAW Resolutions
+            val rawSizes = if (hasRaw) {
+                map?.getOutputSizes(ImageFormat.RAW_SENSOR) ?: emptyArray()
+            } else {
+                emptyArray()
+            }
+            val rawResolutions = rawSizes
+                .sortedByDescending { it.width * it.height }
+                .distinctBy { "${it.width}x${it.height}" }
+                .map { CameraResolution(it.width, it.height, ImageFormat.RAW_SENSOR, isRaw = true) }
+
+            // Video Resolutions
+            val videoSizes = map?.getOutputSizes(MediaRecorder::class.java)
+                ?: map?.getOutputSizes(SurfaceTexture::class.java)
+                ?: emptyArray()
+
+            val standardVideoQualities = listOf(
+                CameraResolution(3840, 2160), // 4K UHD
+                CameraResolution(1920, 1080), // 1080p FHD
+                CameraResolution(1280, 720),  // 720p HD
+                CameraResolution(720, 480)    // 480p SD
+            )
+            val filteredVideoResolutions = standardVideoQualities.filter { standard ->
+                videoSizes.any { it.width == standard.width && it.height == standard.height }
+            }.ifEmpty {
+                videoSizes.sortedByDescending { it.width * it.height }
+                    .distinctBy { "${it.width}x${it.height}" }
+                    .map { CameraResolution(it.width, it.height) }
+                    .take(4)
+            }
+
+            // FPS ranges
+            val fpsRanges = chars.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES) ?: emptyArray()
+            val maxFps = fpsRanges.maxOfOrNull { it.upper } ?: 30
+            val supportedFps = if (maxFps >= 60) listOf(30, 60) else listOf(30)
+
+            // Tonemap curve
+            val tonemapModes = chars.get(CameraCharacteristics.TONEMAP_AVAILABLE_TONE_MAP_MODES) ?: intArrayOf()
+            val hasTonemapCurve = tonemapModes.contains(CameraCharacteristics.TONEMAP_MODE_CONTRAST_CURVE) ||
+                    tonemapModes.contains(CameraCharacteristics.TONEMAP_MODE_FAST)
+
+            val hardwareCaps = HardwareCapabilities(
+                supportsManualSensor = hasManualSensor,
+                supportsRaw = hasRaw && rawResolutions.isNotEmpty(),
+                supportsOis = hasOis,
+                supportsEis = hasEis,
+                supportsFlash = flashAvailable,
+                minIso = isoRange.lower,
+                maxIso = isoRange.upper,
+                minExposureTimeNs = exposureTimeRange.lower,
+                maxExposureTimeNs = exposureTimeRange.upper,
+                minExposureCompensation = aeCompRange.lower,
+                maxExposureCompensation = aeCompRange.upper,
+                exposureCompensationStep = aeCompStep,
+                minFocusDistance = minFocus,
+                supportedAwbModes = awbModes.ifEmpty { listOf(WhiteBalanceMode.AUTO) },
+                supportedAfModes = afModes.ifEmpty { listOf(FocusMode.CONTINUOUS) },
+                supportedPhotoResolutions = photoResolutions,
+                supportedRawResolutions = rawResolutions,
+                supportedVideoResolutions = filteredVideoResolutions,
+                supportedFpsRanges = supportedFps,
+                supportsTonemapCurve = hasTonemapCurve,
+                maxZoom = maxZoom
+            )
+
+            _capabilities.value = hardwareCaps
+
+            // Default resolutions
+            if (_selectedPhotoResolution.value == null || !photoResolutions.contains(_selectedPhotoResolution.value)) {
+                _selectedPhotoResolution.value = photoResolutions.firstOrNull()
+            }
+            if (_selectedVideoResolution.value == null || !filteredVideoResolutions.contains(_selectedVideoResolution.value)) {
+                _selectedVideoResolution.value = filteredVideoResolutions.firstOrNull { it.height == 1080 }
+                    ?: filteredVideoResolutions.firstOrNull()
+            }
+
+            updatePreviewAspectRatio()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error inspecting capabilities for camera $cameraId", e)
+        }
+    }
+
+    private fun updatePreviewAspectRatio() {
+        val resolution = if (currentMode == CameraMode.PHOTO) {
+            _selectedPhotoResolution.value
+        } else {
+            _selectedVideoResolution.value
+        }
+
+        if (resolution != null && resolution.height > 0) {
+            // Standard sensor orientation width > height in landscape, in portrait aspect ratio is width / height
+            val w = max(resolution.width, resolution.height).toFloat()
+            val h = min(resolution.width, resolution.height).toFloat()
+            _previewAspectRatio.value = w / h // e.g. 4/3 = 1.333, 16/9 = 1.777, 20/9 = 2.222
+        } else {
+            _previewAspectRatio.value = 4f / 3f
+        }
+    }
+
+    /**
+     * Switch active lens
+     */
+    fun selectLens(lens: LensInfo) {
+        if (_selectedLens.value?.cameraId == lens.cameraId) return
+        _selectedLens.value = lens
+        inspectCapabilities(lens.cameraId)
+        restartCamera()
+    }
+
+    /**
+     * Switch photo resolution
+     */
+    fun selectPhotoResolution(resolution: CameraResolution) {
+        _selectedPhotoResolution.value = resolution
+        updatePreviewAspectRatio()
+        restartCamera()
+    }
+
+    /**
+     * Switch video resolution
+     */
+    fun selectVideoResolution(resolution: CameraResolution) {
+        _selectedVideoResolution.value = resolution
+        updatePreviewAspectRatio()
+        restartCamera()
+    }
+
+    /**
+     * Switch between Photo & Video modes
+     */
+    fun setMode(mode: CameraMode) {
+        if (currentMode == mode) return
+        if (_isRecordingVideo.value) {
+            stopVideoRecording()
+        }
+        currentMode = mode
+        updatePreviewAspectRatio()
+        restartCamera()
+    }
+
+    /**
+     * Attach viewfinder surface texture from Compose AndroidView
+     */
+    fun setPreviewSurfaceTexture(texture: SurfaceTexture?) {
+        previewSurfaceTexture = texture
+        if (texture != null) {
+            startCamera()
+        } else {
+            closeCamera()
+        }
+    }
+
+    /**
+     * Start/Open Camera2 device
+     */
+    @SuppressLint("MissingPermission")
+    fun startCamera() {
+        val lens = _selectedLens.value ?: return
+        val texture = previewSurfaceTexture ?: return
+
+        startBackgroundThread()
+
+        try {
+            val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+            val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return
+
+            // Pick optimal preview size matching selected aspect ratio
+            val targetRatio = _previewAspectRatio.value
+            val previewSizes = map.getOutputSizes(SurfaceTexture::class.java) ?: emptyArray()
+
+            val optimalPreviewSize = previewSizes
+                .filter {
+                    val r = max(it.width, it.height).toFloat() / min(it.width, it.height).toFloat()
+                    kotlin.math.abs(r - targetRatio) < 0.08f
+                }
+                .maxByOrNull { it.width * it.height }
+                ?: previewSizes.firstOrNull { it.width <= 1920 && it.height <= 1080 }
+                ?: previewSizes.firstOrNull()
+                ?: Size(1920, 1080)
+
+            texture.setDefaultBufferSize(optimalPreviewSize.width, optimalPreviewSize.height)
+            previewSurface = Surface(texture)
+
+            // Setup ImageReader for Photo mode
+            setupImageReaders(lens.cameraId)
+
+            cameraManager.openCamera(lens.cameraId, object : CameraDevice.StateCallback() {
+                override fun onOpened(camera: CameraDevice) {
+                    cameraDevice = camera
+                    createCameraCaptureSession()
+                }
+
+                override fun onDisconnected(camera: CameraDevice) {
+                    camera.close()
+                    cameraDevice = null
+                    _isCameraReady.value = false
+                }
+
+                override fun onError(camera: CameraDevice, error: Int) {
+                    Log.e(TAG, "Camera open error: $error")
+                    camera.close()
+                    cameraDevice = null
+                    _isCameraReady.value = false
+                }
+            }, backgroundHandler)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start camera", e)
+            _isCameraReady.value = false
+        }
+    }
+
+    private fun setupImageReaders(cameraId: String) {
+        imageReaderJpeg?.close()
+        imageReaderRaw?.close()
+
+        val photoRes = _selectedPhotoResolution.value ?: CameraResolution(4000, 3000)
+        imageReaderJpeg = ImageReader.newInstance(
+            photoRes.width,
+            photoRes.height,
+            ImageFormat.JPEG,
+            2
+        )
+
+        val caps = _capabilities.value
+        if (caps.supportsRaw && isRawCaptureEnabled && caps.supportedRawResolutions.isNotEmpty()) {
+            val rawRes = caps.supportedRawResolutions.first()
+            imageReaderRaw = ImageReader.newInstance(
+                rawRes.width,
+                rawRes.height,
+                ImageFormat.RAW_SENSOR,
+                2
+            )
+        }
+    }
+
+    private fun createCameraCaptureSession() {
+        val camera = cameraDevice ?: return
+        val previewSurf = previewSurface ?: return
+
+        try {
+            val surfaces = mutableListOf<Surface>()
+            surfaces.add(previewSurf)
+
+            imageReaderJpeg?.surface?.let { surfaces.add(it) }
+            imageReaderRaw?.surface?.let { surfaces.add(it) }
+
+            val template = if (currentMode == CameraMode.VIDEO) {
+                CameraDevice.TEMPLATE_RECORD
+            } else {
+                CameraDevice.TEMPLATE_PREVIEW
+            }
+
+            previewRequestBuilder = camera.createCaptureRequest(template).apply {
+                addTarget(previewSurf)
+                applyCommonSettings(this)
+            }
+
+            camera.createCaptureSession(
+                surfaces,
+                object : CameraCaptureSession.StateCallback() {
+                    override fun onConfigured(session: CameraCaptureSession) {
+                        if (cameraDevice == null) return
+                        captureSession = session
+                        try {
+                            previewRequestBuilder?.let {
+                                session.setRepeatingRequest(it.build(), captureCallback, backgroundHandler)
+                            }
+                            _isCameraReady.value = true
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to start repeating preview request", e)
+                        }
+                    }
+
+                    override fun onConfigureFailed(session: CameraCaptureSession) {
+                        Log.e(TAG, "Camera capture session configuration failed")
+                        _isCameraReady.value = false
+                    }
+                },
+                backgroundHandler
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create camera capture session", e)
+        }
+    }
+
+    private var lastCaptureResult: TotalCaptureResult? = null
+
+    private val captureCallback = object : CameraCaptureSession.CaptureCallback() {
+        override fun onCaptureCompleted(
+            session: CameraCaptureSession,
+            request: CaptureRequest,
+            result: TotalCaptureResult
+        ) {
+            super.onCaptureCompleted(session, request, result)
+            lastCaptureResult = result
+        }
+    }
+
+    /**
+     * Apply AE, AF, AWB, Flash, ISO, Shutter, Zoom, Stabilization to CaptureRequest.Builder
+     */
+    private fun applyCommonSettings(builder: CaptureRequest.Builder) {
+        val caps = _capabilities.value
+
+        // AE & Manual Exposure / ISO
+        if (manualIso != null || manualExposureTimeNs != null) {
+            builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+            manualIso?.let { builder.set(CaptureRequest.SENSOR_SENSITIVITY, it) }
+            manualExposureTimeNs?.let { builder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, it) }
+        } else {
+            // Auto Exposure mode + Flash configuration
+            when (flashMode) {
+                FlashMode.OFF -> {
+                    builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                    builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
+                }
+                FlashMode.AUTO -> {
+                    builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH)
+                }
+                FlashMode.ON -> {
+                    builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_ALWAYS_FLASH)
+                    builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_SINGLE)
+                }
+                FlashMode.TORCH -> {
+                    builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                    builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
+                }
+            }
+            // Exposure compensation
+            builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, exposureCompensationIndex)
+            builder.set(CaptureRequest.CONTROL_AE_LOCK, isAeLocked)
+        }
+
+        // White Balance
+        builder.set(CaptureRequest.CONTROL_AWB_MODE, whiteBalanceMode.camera2Mode)
+
+        // Focus
+        when (focusMode) {
+            FocusMode.MANUAL -> {
+                builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, manualFocusDistance)
+            }
+            FocusMode.CONTINUOUS -> {
+                val mode = if (currentMode == CameraMode.VIDEO) {
+                    CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
+                } else {
+                    CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
+                }
+                builder.set(CaptureRequest.CONTROL_AF_MODE, mode)
+            }
+            FocusMode.AUTO -> {
+                builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO)
+            }
+            FocusMode.MACRO -> {
+                builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_MACRO)
+            }
+        }
+
+        // Stabilization
+        if (currentMode == CameraMode.VIDEO) {
+            if (isVideoStabilizationEnabled) {
+                if (caps.supportsEis) {
+                    builder.set(
+                        CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                        CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
+                    )
+                }
+                if (caps.supportsOis) {
+                    builder.set(
+                        CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                        CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON
+                    )
+                }
+            } else {
+                builder.set(
+                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+                )
+                builder.set(
+                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF
+                )
+            }
+        }
+
+        // Color profiles & Tonemap
+        when (colorProfile) {
+            ColorProfile.FLAT_LOG -> {
+                if (caps.supportsTonemapCurve) {
+                    builder.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_FAST)
+                }
+                builder.set(CaptureRequest.CONTROL_EFFECT_MODE, CaptureRequest.CONTROL_EFFECT_MODE_OFF)
+            }
+            ColorProfile.MONOCHROME -> {
+                builder.set(CaptureRequest.CONTROL_EFFECT_MODE, CaptureRequest.CONTROL_EFFECT_MODE_MONO)
+            }
+            ColorProfile.VIBRANT -> {
+                builder.set(CaptureRequest.CONTROL_EFFECT_MODE, CaptureRequest.CONTROL_EFFECT_MODE_OFF)
+                builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
+            }
+            ColorProfile.STANDARD, ColorProfile.NATURAL -> {
+                builder.set(CaptureRequest.CONTROL_EFFECT_MODE, CaptureRequest.CONTROL_EFFECT_MODE_OFF)
+            }
+        }
+
+        // Digital Zoom / Crop Region
+        applyZoom(builder)
+    }
+
+    private fun applyZoom(builder: CaptureRequest.Builder) {
+        val lens = _selectedLens.value ?: return
+        try {
+            val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+            val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return
+            val maxZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1.0f
+            val zoom = currentZoom.coerceIn(1.0f, maxZoom)
+
+            val cropW = (sensorRect.width() / zoom).toInt()
+            val cropH = (sensorRect.height() / zoom).toInt()
+            val cropX = (sensorRect.width() - cropW) / 2
+            val cropY = (sensorRect.height() - cropH) / 2
+
+            val cropRegion = Rect(cropX, cropY, cropX + cropW, cropY + cropH)
+            builder.set(CaptureRequest.SCALER_CROP_REGION, cropRegion)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error setting zoom", e)
+        }
+    }
+
+    /**
+     * Updates preview request with new settings on the fly
+     */
+    fun updatePreviewSettings() {
+        val session = captureSession ?: return
+        val builder = previewRequestBuilder ?: return
+        try {
+            applyCommonSettings(builder)
+            session.setRepeatingRequest(builder.build(), captureCallback, backgroundHandler)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update preview settings", e)
+        }
+    }
+
+    /**
+     * Set Digital Zoom (1x to Max)
+     */
+    fun setZoom(zoom: Float) {
+        currentZoom = zoom
+        updatePreviewSettings()
+    }
+
+    /**
+     * Tap to Focus & Meter
+     */
+    fun triggerFocusAndMeter(normX: Float, normY: Float) {
+        val lens = _selectedLens.value ?: return
+        val session = captureSession ?: return
+        val builder = previewRequestBuilder ?: return
+
+        try {
+            val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+            val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return
+
+            val focusAreaSize = 200
+            val centerX = (normX * sensorRect.width()).toInt().coerceIn(0, sensorRect.width())
+            val centerY = (normY * sensorRect.height()).toInt().coerceIn(0, sensorRect.height())
+
+            val left = (centerX - focusAreaSize / 2).coerceAtLeast(0)
+            val right = (centerX + focusAreaSize / 2).coerceAtMost(sensorRect.width())
+            val top = (centerY - focusAreaSize / 2).coerceAtLeast(0)
+            val bottom = (centerY + focusAreaSize / 2).coerceAtMost(sensorRect.height())
+
+            val focusRect = MeteringRectangle(Rect(left, top, right, bottom), MeteringRectangle.METERING_WEIGHT_MAX)
+
+            builder.set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(focusRect))
+            builder.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(focusRect))
+            builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO)
+            builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START)
+
+            session.capture(builder.build(), object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(
+                    session: CameraCaptureSession,
+                    request: CaptureRequest,
+                    result: TotalCaptureResult
+                ) {
+                    builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE)
+                    session.setRepeatingRequest(builder.build(), captureCallback, backgroundHandler)
+                }
+            }, backgroundHandler)
+        } catch (e: Exception) {
+            Log.e(TAG, "Tap to focus failed", e)
+        }
+    }
+
+    /**
+     * Take still photo (JPEG + optional RAW)
+     */
+    fun takePhoto(onComplete: (Uri?) -> Unit) {
+        val camera = cameraDevice ?: return
+        val session = captureSession ?: return
+        val readerJpeg = imageReaderJpeg ?: return
+
+        _isCapturing.value = true
+
+        try {
+            val captureBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+            captureBuilder.addTarget(readerJpeg.surface)
+
+            val caps = _capabilities.value
+            val isRaw = isRawCaptureEnabled && caps.supportsRaw && imageReaderRaw != null
+            if (isRaw) {
+                imageReaderRaw?.surface?.let { captureBuilder.addTarget(it) }
+            }
+
+            applyCommonSettings(captureBuilder)
+            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, 90) // Portrait orientation
+            captureBuilder.set(CaptureRequest.JPEG_QUALITY, 98.toByte())
+
+            readerJpeg.setOnImageAvailableListener({ reader ->
+                val image = reader.acquireLatestImage()
+                if (image != null) {
+                    engineScope.launch(Dispatchers.IO) {
+                        val uri = saveJpegToMediaStore(image)
+                        image.close()
+                        _isCapturing.value = false
+                        updateStorageStats()
+                        withContext(Dispatchers.Main) {
+                            onComplete(uri)
+                        }
+                    }
+                }
+            }, backgroundHandler)
+
+            if (isRaw) {
+                imageReaderRaw?.setOnImageAvailableListener({ reader ->
+                    val rawImage = reader.acquireLatestImage()
+                    if (rawImage != null) {
+                        engineScope.launch(Dispatchers.IO) {
+                            val lens = _selectedLens.value
+                            if (lens != null) {
+                                val characteristics = cameraManager.getCameraCharacteristics(lens.cameraId)
+                                saveRawToMediaStore(rawImage, characteristics)
+                            }
+                            rawImage.close()
+                        }
+                    }
+                }, backgroundHandler)
+            }
+
+            session.capture(captureBuilder.build(), object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(
+                    session: CameraCaptureSession,
+                    request: CaptureRequest,
+                    result: TotalCaptureResult
+                ) {
+                    Log.d(TAG, "Photo capture completed")
+                }
+            }, backgroundHandler)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error taking photo", e)
+            _isCapturing.value = false
+            onComplete(null)
+        }
+    }
+
+    /**
+     * Start Video Recording
+     */
+    fun startVideoRecording(onError: (String) -> Unit) {
+        if (_isRecordingVideo.value) return
+
+        val camera = cameraDevice ?: return
+        val lens = _selectedLens.value ?: return
+
+        try {
+            closeCameraCaptureSession()
+
+            val videoRes = _selectedVideoResolution.value ?: CameraResolution(1920, 1080)
+            val bitrate = if (videoBitrateOption.bps > 0) {
+                videoBitrateOption.bps
+            } else {
+                when {
+                    videoRes.width >= 3840 -> 40_000_000
+                    videoRes.width >= 1920 -> 20_000_000
+                    else -> 10_000_000
+                }
+            }
+
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val fileName = "VID_$timeStamp.mp4"
+
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.Video.Media.RELATIVE_PATH, "DCIM/Camera")
+                    put(MediaStore.Video.Media.IS_PENDING, 1)
+                }
+            }
+
+            val uri = context.contentResolver.insert(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                contentValues
+            ) ?: throw IllegalStateException("Cannot create MediaStore video record")
+
+            currentVideoUri = uri
+            videoRecordingFileDescriptor = context.contentResolver.openFileDescriptor(uri, "rw")
+
+            val fd = videoRecordingFileDescriptor?.fileDescriptor
+                ?: throw IllegalStateException("Cannot open FileDescriptor for video")
+
+            @Suppress("DEPRECATION")
+            mediaRecorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                MediaRecorder(context)
+            } else {
+                MediaRecorder()
+            }.apply {
+                if (isAudioEnabled) {
+                    setAudioSource(MediaRecorder.AudioSource.MIC)
+                }
+                setVideoSource(MediaRecorder.VideoSource.SURFACE)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setOutputFile(fd)
+                setVideoEncodingBitRate(bitrate)
+                setVideoFrameRate(videoFps)
+                setVideoSize(videoRes.width, videoRes.height)
+                setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+                if (isAudioEnabled) {
+                    setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                    setAudioSamplingRate(48000)
+                    setAudioEncodingBitRate(192000)
+                }
+                setOrientationHint(90) // Portrait orientation
+                prepare()
+            }
+
+            val recorderSurface = mediaRecorder!!.surface
+            val previewSurf = previewSurface ?: return
+
+            val surfaces = listOf(previewSurf, recorderSurface)
+
+            previewRequestBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
+                addTarget(previewSurf)
+                addTarget(recorderSurface)
+                applyCommonSettings(this)
+            }
+
+            camera.createCaptureSession(
+                surfaces,
+                object : CameraCaptureSession.StateCallback() {
+                    override fun onConfigured(session: CameraCaptureSession) {
+                        captureSession = session
+                        try {
+                            previewRequestBuilder?.let {
+                                session.setRepeatingRequest(it.build(), captureCallback, backgroundHandler)
+                            }
+                            mediaRecorder?.start()
+                            _isRecordingVideo.value = true
+                            startVideoTimer()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to start MediaRecorder recording", e)
+                            onError("Failed to start recording: ${e.message}")
+                            stopVideoRecording()
+                        }
+                    }
+
+                    override fun onConfigureFailed(session: CameraCaptureSession) {
+                        onError("Video capture session config failed")
+                        _isRecordingVideo.value = false
+                    }
+                },
+                backgroundHandler
+            )
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize video recording", e)
+            onError(e.message ?: "Failed to record video")
+            _isRecordingVideo.value = false
+            restartCamera()
+        }
+    }
+
+    private fun startVideoTimer() {
+        _videoDurationSeconds.value = 0
+        videoTimerJob?.cancel()
+        videoTimerJob = engineScope.launch {
+            while (_isRecordingVideo.value) {
+                delay(1000)
+                _videoDurationSeconds.value += 1
+            }
+        }
+    }
+
+    /**
+     * Stop Video Recording
+     */
+    fun stopVideoRecording() {
+        if (!_isRecordingVideo.value) return
+
+        try {
+            videoTimerJob?.cancel()
+            _isRecordingVideo.value = false
+
+            mediaRecorder?.apply {
+                try {
+                    stop()
+                } catch (e: Exception) {
+                    Log.w(TAG, "MediaRecorder stop failed", e)
+                }
+                reset()
+                release()
+            }
+            mediaRecorder = null
+
+            videoRecordingFileDescriptor?.close()
+            videoRecordingFileDescriptor = null
+
+            // Mark video as complete in MediaStore (API 29+)
+            currentVideoUri?.let { uri ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val values = ContentValues().apply {
+                        put(MediaStore.Video.Media.IS_PENDING, 0)
+                    }
+                    context.contentResolver.update(uri, values, null, null)
+                }
+                _lastCapturedMedia.value = CapturedMedia(
+                    uri = uri,
+                    isVideo = true,
+                    timestamp = System.currentTimeMillis(),
+                    displayName = "Video"
+                )
+            }
+
+            updateStorageStats()
+            restartCamera()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping video recording", e)
+            restartCamera()
+        }
+    }
+
+    private fun saveJpegToMediaStore(image: Image): Uri? {
+        val buffer = image.planes[0].buffer
+        val bytes = ByteArray(buffer.remaining())
+        buffer.get(bytes)
+
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val fileName = "IMG_$timeStamp.jpg"
+
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/Camera")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+
+        val uri = context.contentResolver.insert(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        ) ?: return null
+
+        try {
+            context.contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(bytes)
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                contentValues.clear()
+                contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+                context.contentResolver.update(uri, contentValues, null, null)
+            }
+
+            _lastCapturedMedia.value = CapturedMedia(
+                uri = uri,
+                isVideo = false,
+                timestamp = System.currentTimeMillis(),
+                displayName = fileName
+            )
+            return uri
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save JPEG to media store", e)
+            return null
+        }
+    }
+
+    private fun saveRawToMediaStore(rawImage: Image, characteristics: CameraCharacteristics) {
+        try {
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val fileName = "RAW_$timeStamp.dng"
+
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/x-adobe-dng")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/Camera")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+            }
+
+            val uri = context.contentResolver.insert(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                contentValues
+            ) ?: return
+
+            val captureResult = lastCaptureResult ?: return
+            val dngCreator = DngCreator(characteristics, captureResult)
+
+            context.contentResolver.openOutputStream(uri)?.use { out ->
+                dngCreator.writeImage(out, rawImage)
+            }
+            dngCreator.close()
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val completeValues = ContentValues().apply {
+                    put(MediaStore.Images.Media.IS_PENDING, 0)
+                }
+                context.contentResolver.update(uri, completeValues, null, null)
+            }
+            Log.d(TAG, "Saved RAW DNG successfully to $uri")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save RAW image", e)
+        }
+    }
+
+    /**
+     * Update storage statistics
+     */
+    fun updateStorageStats() {
+        try {
+            val stat = StatFs(Environment.getExternalStorageDirectory().path)
+            val bytesAvailable = stat.availableBytes
+            val totalBytes = stat.totalBytes
+            val freeGb = bytesAvailable.toFloat() / (1024 * 1024 * 1024)
+
+            // Approximate: 5MB per JPEG photo, ~150MB per minute of 1080p video
+            val estimatedPhotos = (bytesAvailable / (5L * 1024 * 1024)).toInt()
+            val estimatedVideoMinutes = (bytesAvailable / (150L * 1024 * 1024)).toInt()
+
+            _storageStats.value = StorageStats(
+                freeBytes = bytesAvailable,
+                totalBytes = totalBytes,
+                freeGb = freeGb,
+                estimatedPhotos = estimatedPhotos,
+                estimatedVideoMinutes = estimatedVideoMinutes
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error calculating storage stats", e)
+        }
+    }
+
+    fun restartCamera() {
+        closeCamera()
+        startCamera()
+    }
+
+    private fun closeCameraCaptureSession() {
+        try {
+            captureSession?.close()
+            captureSession = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing capture session", e)
+        }
+    }
+
+    fun closeCamera() {
+        _isCameraReady.value = false
+        closeCameraCaptureSession()
+        try {
+            cameraDevice?.close()
+            cameraDevice = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing camera device", e)
+        }
+        imageReaderJpeg?.close()
+        imageReaderJpeg = null
+        imageReaderRaw?.close()
+        imageReaderRaw = null
+    }
+
+    fun release() {
+        closeCamera()
+        stopBackgroundThread()
+    }
+}
