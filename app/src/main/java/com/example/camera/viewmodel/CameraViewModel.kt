@@ -6,12 +6,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.camera.engine.Camera2Engine
+import com.example.camera.engine.PortraitProcessor
 import com.example.camera.model.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 enum class ProControlTab(val label: String) {
@@ -26,10 +25,29 @@ enum class ProControlTab(val label: String) {
 class CameraViewModel(application: Application) : AndroidViewModel(application) {
 
     val engine = Camera2Engine(application.applicationContext)
+    private val portraitProcessor by lazy { PortraitProcessor(application.applicationContext) }
 
     // Mode
     private val _cameraMode = MutableStateFlow(CameraMode.PHOTO)
     val cameraMode: StateFlow<CameraMode> = _cameraMode.asStateFlow()
+
+    // Portrait Mode Controls & Pipeline State
+    private val _portraitConfig = MutableStateFlow(PortraitConfig())
+    val portraitConfig: StateFlow<PortraitConfig> = _portraitConfig.asStateFlow()
+
+    private val _portraitProcessingState = MutableStateFlow(PortraitProcessingState())
+    val portraitProcessingState: StateFlow<PortraitProcessingState> = _portraitProcessingState.asStateFlow()
+
+    // Filtered lenses strictly adhering to current facing:
+    // When on Back Camera -> ONLY back lenses (0.5x, 1x, 2x, etc.)
+    // When on Front Camera -> ONLY front selfie lens
+    val displayedLenses: StateFlow<List<LensInfo>> = combine(
+        engine.availableLenses,
+        engine.selectedLens
+    ) { lenses, selected ->
+        val currentFacing = selected?.facing ?: android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK
+        lenses.filter { it.facing == currentFacing }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Timer
     private val _timerMode = MutableStateFlow(TimerMode.OFF)
@@ -127,6 +145,11 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         engine.selectLens(lens)
     }
 
+    fun forceDeepScanLenses() {
+        val count = engine.detectHardwareLenses(forceDeepScan = true)
+        showToast("Deep scan found $count hardware & aux lenses")
+    }
+
     fun toggleCameraFacing() {
         val currentLens = engine.selectedLens.value ?: return
         val targetFacing = if (currentLens.facing == android.hardware.camera2.CameraCharacteristics.LENS_FACING_FRONT) {
@@ -134,9 +157,14 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         } else {
             android.hardware.camera2.CameraCharacteristics.LENS_FACING_FRONT
         }
-        val targetLens = engine.availableLenses.value.firstOrNull { it.facing == targetFacing }
+        val targetLens = engine.availableLenses.value.firstOrNull {
+            it.facing == targetFacing && (it.lensType == LensType.WIDE || it.lensType == LensType.FRONT) && !it.isZoomPreset
+        } ?: engine.availableLenses.value.firstOrNull { it.facing == targetFacing }
+
         if (targetLens != null) {
             engine.selectLens(targetLens)
+            val label = if (targetFacing == android.hardware.camera2.CameraCharacteristics.LENS_FACING_FRONT) "Front Camera" else "Rear Camera"
+            showToast("Switched to $label")
         }
     }
 
@@ -321,11 +349,37 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun setPortraitBlurStrength(strength: Float) {
+        _portraitConfig.update { it.copy(blurStrength = strength) }
+    }
+
+    fun setPortraitAperture(aperture: String) {
+        _portraitConfig.update { it.copy(simulatedAperture = aperture) }
+        showToast("Aperture: $aperture")
+    }
+
+    fun setPortraitBokehStyle(style: BokehStyle) {
+        _portraitConfig.update { it.copy(bokehStyle = style) }
+        showToast("Bokeh: ${style.label}")
+    }
+
+    fun togglePortraitFaceEnhancement() {
+        val next = !_portraitConfig.value.faceEnhancement
+        _portraitConfig.update { it.copy(faceEnhancement = next) }
+        showToast("Face Enhancement: ${if (next) "ON" else "OFF"}")
+    }
+
+    fun togglePortraitSkinTone() {
+        val next = !_portraitConfig.value.skinToneCorrection
+        _portraitConfig.update { it.copy(skinToneCorrection = next) }
+        showToast("Skin Tone Correction: ${if (next) "ON" else "OFF"}")
+    }
+
     fun onMainActionButtonClick() {
-        if (_cameraMode.value == CameraMode.PHOTO) {
-            triggerPhotoCapture()
-        } else {
-            triggerVideoCapture()
+        when (_cameraMode.value) {
+            CameraMode.PHOTO -> triggerPhotoCapture()
+            CameraMode.PORTRAIT -> triggerPortraitCapture()
+            CameraMode.VIDEO -> triggerVideoCapture()
         }
     }
 
@@ -354,6 +408,64 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 showToast("Saved to DCIM/Camera")
             } else {
                 showToast("Failed to save photo")
+            }
+        }
+    }
+
+    private fun triggerPortraitCapture() {
+        if (engine.isCapturing.value || _portraitProcessingState.value.isProcessing) return
+
+        val timerSeconds = _timerMode.value.seconds
+        if (timerSeconds > 0) {
+            timerJob?.cancel()
+            timerJob = viewModelScope.launch {
+                for (remaining in timerSeconds downTo 1) {
+                    _activeTimerCountdown.value = remaining
+                    delay(1000)
+                }
+                _activeTimerCountdown.value = null
+                executePortraitCapture()
+            }
+        } else {
+            executePortraitCapture()
+        }
+    }
+
+    private fun executePortraitCapture() {
+        _portraitProcessingState.value = PortraitProcessingState(
+            isProcessing = true,
+            progress = 0.05f,
+            statusText = "Capturing full-resolution frame..."
+        )
+
+        engine.captureStillBitmap { capturedBitmap ->
+            if (capturedBitmap == null) {
+                _portraitProcessingState.value = PortraitProcessingState(isProcessing = false)
+                showToast("Portrait capture failed")
+                return@captureStillBitmap
+            }
+
+            viewModelScope.launch {
+                val config = _portraitConfig.value
+                val uri = portraitProcessor.processAndSavePortrait(
+                    sourceBitmap = capturedBitmap,
+                    config = config,
+                    onProgress = { progress, status ->
+                        _portraitProcessingState.value = PortraitProcessingState(
+                            isProcessing = true,
+                            progress = progress,
+                            statusText = status
+                        )
+                    }
+                )
+
+                _portraitProcessingState.value = PortraitProcessingState(isProcessing = false)
+                if (uri != null) {
+                    showToast("Portrait saved to DCIM/Camera")
+                    engine.updateStorageStats()
+                } else {
+                    showToast("Portrait processing failed")
+                }
             }
         }
     }

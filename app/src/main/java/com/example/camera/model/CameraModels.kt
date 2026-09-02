@@ -3,10 +3,31 @@ package com.example.camera.model
 import android.graphics.ImageFormat
 import android.util.Size
 
-enum class CameraMode {
-    PHOTO,
-    VIDEO
+enum class CameraMode(val title: String) {
+    PHOTO("Photo"),
+    PORTRAIT("Portrait"),
+    VIDEO("Video")
 }
+
+data class PortraitConfig(
+    val blurStrength: Float = 60f, // 0..100
+    val simulatedAperture: String = "f/1.4", // f/0.95, f/1.2, f/1.4, f/1.8, f/2.4, f/2.8
+    val bokehStyle: BokehStyle = BokehStyle.NATURAL,
+    val faceEnhancement: Boolean = false,
+    val skinToneCorrection: Boolean = false,
+    val showDepthPreview: Boolean = false
+)
+
+enum class BokehStyle(val label: String, val description: String) {
+    NATURAL("Natural", "Creamy optical depth falloff"),
+    STRONG("Strong Bokeh", "Specular lens bokeh circles")
+}
+
+data class PortraitProcessingState(
+    val isProcessing: Boolean = false,
+    val progress: Float = 0f,
+    val statusText: String = ""
+)
 
 enum class FlashMode(val title: String) {
     OFF("Off"),
@@ -112,19 +133,27 @@ data class CameraResolution(
 }
 
 data class LensInfo(
+    val id: String = java.util.UUID.randomUUID().toString(),
     val cameraId: String,
     val facing: Int, // CameraCharacteristics.LENS_FACING_BACK, etc.
     val lensType: LensType,
     val displayName: String,
     val focalLengthMm: Float,
     val maxAperture: Float,
-    val isPhysical: Boolean = false
+    val isPhysical: Boolean = false,
+    val isHiddenAux: Boolean = false,
+    val isZoomPreset: Boolean = false,
+    val baseZoomRatio: Float = 1.0f,
+    val physicalCameraId: String? = null,
+    val fovDegrees: Float = 0f,
+    val equivalent35mmFocalMm: Float = 0f,
+    val idTypeDescription: String = "Logical"
 )
 
 enum class LensType(val shortLabel: String, val fullLabel: String) {
     ULTRAWIDE("0.5x", "Ultra Wide"),
     WIDE("1x", "Main Wide"),
-    TELEPHOTO("2x", "Telephoto"),
+    TELEPHOTO("2x", "2x Telephoto"),
     TELEPHOTO_3X("3x", "3x Telephoto"),
     MACRO("Macro", "Macro Lens"),
     FRONT("1x", "Front Selfie")

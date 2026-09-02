@@ -142,7 +142,12 @@ fun BottomControlBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 availableLenses.forEach { lens ->
-                    val isSelected = selectedLens?.cameraId == lens.cameraId
+                    val isSelected = selectedLens?.id == lens.id || (
+                        selectedLens?.cameraId == lens.cameraId &&
+                        selectedLens?.isZoomPreset == lens.isZoomPreset &&
+                        selectedLens?.baseZoomRatio == lens.baseZoomRatio &&
+                        selectedLens?.lensType == lens.lensType
+                    )
                     val pillBg by animateColorAsState(
                         if (isSelected) Color(0xFFFFD54F) else Color.Transparent,
                         label = "lensPillBg"
@@ -152,17 +157,23 @@ fun BottomControlBar(
                         label = "lensTextColor"
                     )
 
+                    val label = when {
+                        lens.isPhysical -> "P${lens.cameraId}"
+                        lens.isHiddenAux -> "Aux${lens.cameraId}"
+                        else -> lens.lensType.shortLabel
+                    }
+
                     Box(
                         modifier = Modifier
                             .clip(CircleShape)
                             .background(pillBg)
                             .clickable { onLensSelected(lens) }
                             .padding(horizontal = 10.dp, vertical = 5.dp)
-                            .testTag("lens_button_${lens.cameraId}"),
+                            .testTag("lens_button_${lens.cameraId}_${lens.lensType.name}"),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = lens.lensType.shortLabel,
+                            text = label,
                             color = textColor,
                             fontSize = 12.sp,
                             fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
@@ -261,33 +272,55 @@ fun BottomControlBar(
                     label = "shutterScale"
                 )
 
-                if (cameraMode == CameraMode.PHOTO) {
-                    // Photo Shutter
-                    Box(
-                        modifier = Modifier
-                            .size(62.dp)
-                            .scale(buttonScale)
-                            .clip(CircleShape)
-                            .background(Color.White)
-                    )
-                } else {
-                    // Video Record Button
-                    if (isRecordingVideo) {
-                        // Stop square
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Color.Red)
-                        )
-                    } else {
-                        // Record red circle
+                when (cameraMode) {
+                    CameraMode.PHOTO -> {
+                        // Photo Shutter
                         Box(
                             modifier = Modifier
                                 .size(62.dp)
+                                .scale(buttonScale)
                                 .clip(CircleShape)
-                                .background(Color.Red)
+                                .background(Color.White)
                         )
+                    }
+                    CameraMode.PORTRAIT -> {
+                        // Portrait Mode Photo Shutter with Warm Golden Ring
+                        Box(
+                            modifier = Modifier
+                                .size(62.dp)
+                                .scale(buttonScale)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                                .border(3.dp, Color(0xFFFFD54F), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFFD54F))
+                            )
+                        }
+                    }
+                    CameraMode.VIDEO -> {
+                        // Video Record Button
+                        if (isRecordingVideo) {
+                            // Stop square
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color.Red)
+                            )
+                        } else {
+                            // Record red circle
+                            Box(
+                                modifier = Modifier
+                                    .size(62.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Red)
+                            )
+                        }
                     }
                 }
             }

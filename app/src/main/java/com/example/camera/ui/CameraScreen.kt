@@ -90,7 +90,7 @@ fun CameraScreen(
 
     // Engine & VM States
     val cameraMode by viewModel.cameraMode.collectAsStateWithLifecycle()
-    val availableLenses by viewModel.engine.availableLenses.collectAsStateWithLifecycle()
+    val displayedLenses by viewModel.displayedLenses.collectAsStateWithLifecycle()
     val selectedLens by viewModel.engine.selectedLens.collectAsStateWithLifecycle()
     val capabilities by viewModel.engine.capabilities.collectAsStateWithLifecycle()
     val selectedPhotoResolution by viewModel.engine.selectedPhotoResolution.collectAsStateWithLifecycle()
@@ -101,6 +101,9 @@ fun CameraScreen(
     val videoDurationSeconds by viewModel.engine.videoDurationSeconds.collectAsStateWithLifecycle()
     val isCapturing by viewModel.engine.isCapturing.collectAsStateWithLifecycle()
     val lastCapturedMedia by viewModel.engine.lastCapturedMedia.collectAsStateWithLifecycle()
+
+    val portraitConfig by viewModel.portraitConfig.collectAsStateWithLifecycle()
+    val portraitProcessingState by viewModel.portraitProcessingState.collectAsStateWithLifecycle()
 
     val flashMode by viewModel.flashMode.collectAsStateWithLifecycle()
     val timerMode by viewModel.timerMode.collectAsStateWithLifecycle()
@@ -170,34 +173,57 @@ fun CameraScreen(
             modifier = Modifier.align(Alignment.TopCenter)
         )
 
-        // 3. Manual Pro Control Bar (Slide-up above bottom controls)
-        ManualProControlBar(
-            isOpen = isManualProOpen,
-            activeTab = activeProTab,
-            capabilities = capabilities,
-            exposureCompensation = exposureCompensation,
-            manualIso = manualIso,
-            manualShutterSpeedNs = manualShutterSpeedNs,
-            whiteBalance = whiteBalance,
-            focusMode = focusMode,
-            manualFocusDistance = manualFocusDistance,
-            colorProfile = colorProfile,
-            isAeLocked = isAeLocked,
-            isAfLocked = isAfLocked,
-            onTabSelected = { viewModel.setActiveProTab(it) },
-            onExposureChange = { viewModel.setExposureCompensation(it) },
-            onIsoChange = { viewModel.setManualIso(it) },
-            onShutterChange = { viewModel.setManualShutterSpeedNs(it) },
-            onWbChange = { viewModel.setWhiteBalance(it) },
-            onFocusModeChange = { viewModel.setFocusMode(it) },
-            onFocusDistanceChange = { viewModel.setManualFocusDistance(it) },
-            onColorProfileChange = { viewModel.setColorProfile(it) },
-            onToggleAeLock = { viewModel.toggleAeLock() },
-            onToggleAfLock = { viewModel.toggleAfLock() },
+        // 3. Manual Pro Control Bar (Slide-up above bottom controls in Photo/Video modes)
+        if (cameraMode != CameraMode.PORTRAIT) {
+            ManualProControlBar(
+                isOpen = isManualProOpen,
+                activeTab = activeProTab,
+                capabilities = capabilities,
+                exposureCompensation = exposureCompensation,
+                manualIso = manualIso,
+                manualShutterSpeedNs = manualShutterSpeedNs,
+                whiteBalance = whiteBalance,
+                focusMode = focusMode,
+                manualFocusDistance = manualFocusDistance,
+                colorProfile = colorProfile,
+                isAeLocked = isAeLocked,
+                isAfLocked = isAfLocked,
+                onTabSelected = { viewModel.setActiveProTab(it) },
+                onExposureChange = { viewModel.setExposureCompensation(it) },
+                onIsoChange = { viewModel.setManualIso(it) },
+                onShutterChange = { viewModel.setManualShutterSpeedNs(it) },
+                onWbChange = { viewModel.setWhiteBalance(it) },
+                onFocusModeChange = { viewModel.setFocusMode(it) },
+                onFocusDistanceChange = { viewModel.setManualFocusDistance(it) },
+                onColorProfileChange = { viewModel.setColorProfile(it) },
+                onToggleAeLock = { viewModel.toggleAeLock() },
+                onToggleAfLock = { viewModel.toggleAfLock() },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 190.dp)
+            )
+        }
+
+        // 3b. Dedicated Portrait Mode AI Controls Panel
+        AnimatedVisibility(
+            visible = cameraMode == CameraMode.PORTRAIT,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 190.dp)
-        )
+        ) {
+            PortraitControlBar(
+                config = portraitConfig,
+                processingState = portraitProcessingState,
+                onBlurStrengthChanged = { viewModel.setPortraitBlurStrength(it) },
+                onApertureSelected = { viewModel.setPortraitAperture(it) },
+                onBokehStyleSelected = { viewModel.setPortraitBokehStyle(it) },
+                onToggleFaceEnhancement = { viewModel.togglePortraitFaceEnhancement() },
+                onToggleSkinTone = { viewModel.togglePortraitSkinTone() },
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+        }
 
         // 4. Toast Notification Overlay
         AnimatedVisibility(
@@ -226,10 +252,10 @@ fun CameraScreen(
             }
         }
 
-        // 5. Bottom Controls
+        // 5. Bottom Controls (Uses displayedLenses filtered strictly by active lens facing)
         BottomControlBar(
             cameraMode = cameraMode,
-            availableLenses = availableLenses,
+            availableLenses = displayedLenses,
             selectedLens = selectedLens,
             isRecordingVideo = isRecordingVideo,
             videoDurationSeconds = videoDurationSeconds,
@@ -257,6 +283,8 @@ fun CameraScreen(
             isOpen = isSettingsOpen,
             cameraMode = cameraMode,
             capabilities = capabilities,
+            availableLenses = displayedLenses,
+            selectedLens = selectedLens,
             selectedPhotoResolution = selectedPhotoResolution,
             selectedVideoResolution = selectedVideoResolution,
             videoFps = videoFps,
@@ -264,6 +292,8 @@ fun CameraScreen(
             isVideoStabilizationEnabled = isVideoStabilizationEnabled,
             isAudioEnabled = isAudioEnabled,
             isRawEnabled = isRawEnabled,
+            onLensSelected = { viewModel.selectLens(it) },
+            onForceDeepScan = { viewModel.forceDeepScanLenses() },
             onPhotoResolutionSelected = { viewModel.selectPhotoResolution(it) },
             onVideoResolutionSelected = { viewModel.selectVideoResolution(it) },
             onVideoFpsSelected = { viewModel.setVideoFps(it) },
