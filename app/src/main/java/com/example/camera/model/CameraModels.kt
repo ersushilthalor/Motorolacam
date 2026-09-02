@@ -83,6 +83,26 @@ enum class VideoBitrateOption(val title: String, val bps: Int) {
     MAX("Max (50 Mbps)", 50_000_000)
 }
 
+enum class VideoQualityOption(
+    val shortLabel: String,
+    val fullLabel: String,
+    val width: Int,
+    val height: Int,
+    val fps: Int
+) {
+    UHD_4K_30("4K 30", "4K UHD · 30 FPS", 3840, 2160, 30),
+    UHD_4K_60("4K 60", "4K UHD · 60 FPS", 3840, 2160, 60),
+    FHD_1080_30("1080p 30", "1080p FHD · 30 FPS", 1920, 1080, 30),
+    FHD_1080_60("1080p 60", "1080p FHD · 60 FPS", 1920, 1080, 60),
+    HD_720_30("720p 30", "720p HD · 30 FPS", 1280, 720, 30);
+
+    val badgeLabel: String
+        get() = shortLabel
+
+    val resolution: CameraResolution
+        get() = CameraResolution(width, height)
+}
+
 enum class ColorProfile(val title: String, val isFlat: Boolean) {
     STANDARD("Standard", false),
     VIBRANT("Vibrant", false),

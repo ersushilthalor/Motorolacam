@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.compose.ui.geometry.Offset
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.camera.data.CameraPreferences
 import com.example.camera.engine.Camera2Engine
 import com.example.camera.engine.PortraitProcessor
 import com.example.camera.model.*
@@ -26,13 +27,19 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     val engine = Camera2Engine(application.applicationContext)
     private val portraitProcessor by lazy { PortraitProcessor(application.applicationContext) }
+    private val preferences = CameraPreferences(application.applicationContext)
 
     // Mode
-    private val _cameraMode = MutableStateFlow(CameraMode.PHOTO)
+    private val _cameraMode = MutableStateFlow(preferences.cameraMode)
     val cameraMode: StateFlow<CameraMode> = _cameraMode.asStateFlow()
 
     // Portrait Mode Controls & Pipeline State
-    private val _portraitConfig = MutableStateFlow(PortraitConfig())
+    private val _portraitConfig = MutableStateFlow(
+        PortraitConfig(
+            blurStrength = preferences.portraitBlurStrength,
+            simulatedAperture = preferences.portraitAperture
+        )
+    )
     val portraitConfig: StateFlow<PortraitConfig> = _portraitConfig.asStateFlow()
 
     private val _portraitProcessingState = MutableStateFlow(PortraitProcessingState())
@@ -50,18 +57,18 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Timer
-    private val _timerMode = MutableStateFlow(TimerMode.OFF)
+    private val _timerMode = MutableStateFlow(preferences.timerMode)
     val timerMode: StateFlow<TimerMode> = _timerMode.asStateFlow()
 
     private val _activeTimerCountdown = MutableStateFlow<Int?>(null)
     val activeTimerCountdown: StateFlow<Int?> = _activeTimerCountdown.asStateFlow()
 
     // Grid
-    private val _gridType = MutableStateFlow(GridType.NONE)
+    private val _gridType = MutableStateFlow(preferences.gridType)
     val gridType: StateFlow<GridType> = _gridType.asStateFlow()
 
     // Flash
-    private val _flashMode = MutableStateFlow(FlashMode.OFF)
+    private val _flashMode = MutableStateFlow(preferences.flashMode)
     val flashMode: StateFlow<FlashMode> = _flashMode.asStateFlow()
 
     // Manual Pro controls drawer / bar
@@ -96,10 +103,10 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val _manualShutterSpeedNs = MutableStateFlow<Long?>(null)
     val manualShutterSpeedNs: StateFlow<Long?> = _manualShutterSpeedNs.asStateFlow()
 
-    private val _whiteBalance = MutableStateFlow(WhiteBalanceMode.AUTO)
+    private val _whiteBalance = MutableStateFlow(preferences.whiteBalance)
     val whiteBalance: StateFlow<WhiteBalanceMode> = _whiteBalance.asStateFlow()
 
-    private val _focusMode = MutableStateFlow(FocusMode.CONTINUOUS)
+    private val _focusMode = MutableStateFlow(preferences.focusMode)
     val focusMode: StateFlow<FocusMode> = _focusMode.asStateFlow()
 
     private val _manualFocusDistance = MutableStateFlow(0f)
@@ -111,38 +118,70 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val _isAfLocked = MutableStateFlow(false)
     val isAfLocked: StateFlow<Boolean> = _isAfLocked.asStateFlow()
 
-    private val _isRawCaptureEnabled = MutableStateFlow(false)
+    private val _isRawCaptureEnabled = MutableStateFlow(preferences.isRawEnabled)
     val isRawCaptureEnabled: StateFlow<Boolean> = _isRawCaptureEnabled.asStateFlow()
 
-    private val _isVideoStabilizationEnabled = MutableStateFlow(true)
+    private val _isVideoStabilizationEnabled = MutableStateFlow(preferences.isVideoStabilizationEnabled)
     val isVideoStabilizationEnabled: StateFlow<Boolean> = _isVideoStabilizationEnabled.asStateFlow()
 
-    private val _videoBitrateOption = MutableStateFlow(VideoBitrateOption.AUTO)
+    private val _videoBitrateOption = MutableStateFlow(preferences.videoBitrate)
     val videoBitrateOption: StateFlow<VideoBitrateOption> = _videoBitrateOption.asStateFlow()
 
-    private val _videoFps = MutableStateFlow(30)
+    private val _videoFps = MutableStateFlow(preferences.videoFps)
     val videoFps: StateFlow<Int> = _videoFps.asStateFlow()
 
-    private val _colorProfile = MutableStateFlow(ColorProfile.STANDARD)
+    private val _colorProfile = MutableStateFlow(preferences.colorProfile)
     val colorProfile: StateFlow<ColorProfile> = _colorProfile.asStateFlow()
 
-    private val _isAudioEnabled = MutableStateFlow(true)
+    private val _isAudioEnabled = MutableStateFlow(preferences.isAudioEnabled)
     val isAudioEnabled: StateFlow<Boolean> = _isAudioEnabled.asStateFlow()
 
     private val _currentZoom = MutableStateFlow(1.0f)
     val currentZoom: StateFlow<Float> = _currentZoom.asStateFlow()
 
+    // Active Video Quality (4K 30, 4K 60, 1080p 30, 1080p 60, 720p 30)
+    val currentVideoQuality: StateFlow<VideoQualityOption> = combine(
+        engine.selectedVideoResolution,
+        _videoFps
+    ) { res, fps ->
+        when {
+            res?.width == 3840 && fps == 60 -> VideoQualityOption.UHD_4K_60
+            res?.width == 3840 -> VideoQualityOption.UHD_4K_30
+            res?.width == 1920 && fps == 60 -> VideoQualityOption.FHD_1080_60
+            res?.width == 1920 -> VideoQualityOption.FHD_1080_30
+            res?.width == 1280 -> VideoQualityOption.HD_720_30
+            else -> VideoQualityOption.UHD_4K_30
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, VideoQualityOption.UHD_4K_30)
+
     private var timerJob: Job? = null
     private var focusDismissJob: Job? = null
     private var toastDismissJob: Job? = null
 
+    init {
+        // Apply restored preferences into engine
+        engine.flashMode = preferences.flashMode
+        engine.isRawCaptureEnabled = preferences.isRawEnabled
+        engine.isVideoStabilizationEnabled = preferences.isVideoStabilizationEnabled
+        engine.videoBitrateOption = preferences.videoBitrate
+        engine.videoFps = preferences.videoFps
+        engine.colorProfile = preferences.colorProfile
+        engine.isAudioEnabled = preferences.isAudioEnabled
+        engine.whiteBalanceMode = preferences.whiteBalance
+        engine.focusMode = preferences.focusMode
+        engine.setMode(preferences.cameraMode)
+        engine.selectVideoResolution(CameraResolution(preferences.videoWidth, preferences.videoHeight))
+    }
+
     fun setCameraMode(mode: CameraMode) {
         _cameraMode.value = mode
+        preferences.cameraMode = mode
         engine.setMode(mode)
     }
 
     fun selectLens(lens: LensInfo) {
         engine.selectLens(lens)
+        preferences.lastFacing = lens.facing
     }
 
     fun forceDeepScanLenses() {
@@ -163,6 +202,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
         if (targetLens != null) {
             engine.selectLens(targetLens)
+            preferences.lastFacing = targetFacing
             val label = if (targetFacing == android.hardware.camera2.CameraCharacteristics.LENS_FACING_FRONT) "Front Camera" else "Rear Camera"
             showToast("Switched to $label")
         }
@@ -176,6 +216,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             FlashMode.TORCH -> FlashMode.OFF
         }
         _flashMode.value = nextMode
+        preferences.flashMode = nextMode
         engine.flashMode = nextMode
         engine.updatePreviewSettings()
         showToast("Flash: ${nextMode.title}")
@@ -189,6 +230,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             TimerMode.SEC_10 -> TimerMode.OFF
         }
         _timerMode.value = nextMode
+        preferences.timerMode = nextMode
         showToast("Timer: ${nextMode.label}")
     }
 
@@ -201,6 +243,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             GridType.LEVEL -> GridType.NONE
         }
         _gridType.value = nextGrid
+        preferences.gridType = nextGrid
         showToast("Grid: ${nextGrid.title}")
     }
 
@@ -212,9 +255,33 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         }
         val next = !_isRawCaptureEnabled.value
         _isRawCaptureEnabled.value = next
+        preferences.isRawEnabled = next
         engine.isRawCaptureEnabled = next
         engine.restartCamera()
         showToast(if (next) "RAW (DNG + JPEG) Enabled" else "RAW Disabled")
+    }
+
+    fun cycleVideoQuality() {
+        val supportedQualities = listOf(
+            VideoQualityOption.UHD_4K_30,
+            VideoQualityOption.UHD_4K_60,
+            VideoQualityOption.FHD_1080_30,
+            VideoQualityOption.FHD_1080_60,
+            VideoQualityOption.HD_720_30
+        )
+        val currentIndex = supportedQualities.indexOf(currentVideoQuality.value).let { if (it >= 0) it else 0 }
+        val nextQuality = supportedQualities[(currentIndex + 1) % supportedQualities.size]
+        setVideoQuality(nextQuality)
+    }
+
+    fun setVideoQuality(quality: VideoQualityOption) {
+        engine.selectVideoResolution(quality.resolution)
+        engine.videoFps = quality.fps
+        _videoFps.value = quality.fps
+        preferences.videoWidth = quality.width
+        preferences.videoHeight = quality.height
+        preferences.videoFps = quality.fps
+        showToast("Video Quality: ${quality.fullLabel}")
     }
 
     fun toggleManualPro() {
@@ -245,14 +312,18 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setWhiteBalance(wb: WhiteBalanceMode) {
         _whiteBalance.value = wb
+        preferences.whiteBalance = wb
         engine.whiteBalanceMode = wb
         engine.updatePreviewSettings()
+        showToast("WB: ${wb.title}")
     }
 
     fun setFocusMode(mode: FocusMode) {
         _focusMode.value = mode
+        preferences.focusMode = mode
         engine.focusMode = mode
         engine.updatePreviewSettings()
+        showToast("Focus: ${mode.title}")
     }
 
     fun setManualFocusDistance(distance: Float) {
@@ -289,6 +360,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
         _isVideoStabilizationEnabled.value = enabled
+        preferences.isVideoStabilizationEnabled = enabled
         engine.isVideoStabilizationEnabled = enabled
         engine.updatePreviewSettings()
         showToast(if (enabled) "Stabilization Enabled" else "Stabilization Disabled")
@@ -296,18 +368,21 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setVideoBitrate(bitrate: VideoBitrateOption) {
         _videoBitrateOption.value = bitrate
+        preferences.videoBitrate = bitrate
         engine.videoBitrateOption = bitrate
         showToast("Bitrate: ${bitrate.title}")
     }
 
     fun setVideoFps(fps: Int) {
         _videoFps.value = fps
+        preferences.videoFps = fps
         engine.videoFps = fps
         showToast("Frame Rate: ${fps} FPS")
     }
 
     fun setColorProfile(profile: ColorProfile) {
         _colorProfile.value = profile
+        preferences.colorProfile = profile
         engine.colorProfile = profile
         engine.updatePreviewSettings()
         showToast("Profile: ${profile.title}")
@@ -316,6 +391,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     fun toggleAudio() {
         val next = !_isAudioEnabled.value
         _isAudioEnabled.value = next
+        preferences.isAudioEnabled = next
         engine.isAudioEnabled = next
         showToast(if (next) "Audio Recording On" else "Audio Muted")
     }
@@ -327,6 +403,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     fun selectVideoResolution(res: CameraResolution) {
         engine.selectVideoResolution(res)
+        preferences.videoWidth = res.width
+        preferences.videoHeight = res.height
         showToast("Video Resolution: ${res.displayLabel}")
     }
 
@@ -351,10 +429,12 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setPortraitBlurStrength(strength: Float) {
         _portraitConfig.update { it.copy(blurStrength = strength) }
+        preferences.portraitBlurStrength = strength
     }
 
     fun setPortraitAperture(aperture: String) {
         _portraitConfig.update { it.copy(simulatedAperture = aperture) }
+        preferences.portraitAperture = aperture
         showToast("Aperture: $aperture")
     }
 
@@ -448,7 +528,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             viewModelScope.launch {
                 val config = _portraitConfig.value
                 val uri = portraitProcessor.processAndSavePortrait(
-                    sourceBitmap = capturedBitmap,
+                    orientedBitmap = capturedBitmap,
                     config = config,
                     onProgress = { progress, status ->
                         _portraitProcessingState.value = PortraitProcessingState(

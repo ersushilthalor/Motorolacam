@@ -129,8 +129,8 @@ fun BottomControlBar(
             }
         }
 
-        // Lens Selector Row (shows only real hardware lenses detected)
-        if (availableLenses.isNotEmpty() && !isRecordingVideo) {
+        // Lens Selector Row (shows hardware lenses and zoom presets seamlessly during both preview and recording)
+        if (availableLenses.isNotEmpty()) {
             Row(
                 modifier = Modifier
                     .padding(bottom = 12.dp)

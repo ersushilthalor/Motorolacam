@@ -31,6 +31,8 @@ fun TopControlBar(
     isRawEnabled: Boolean,
     supportsRaw: Boolean,
     storageStats: StorageStats,
+    videoQuality: VideoQualityOption = VideoQualityOption.UHD_4K_30,
+    onVideoQualityClick: () -> Unit = {},
     onFlashClick: () -> Unit,
     onTimerClick: () -> Unit,
     onGridClick: () -> Unit,
@@ -52,7 +54,7 @@ fun TopControlBar(
             .statusBarsPadding()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        // Storage Chip Row
+        // Storage Chip & Video Quality / RAW Row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -97,7 +99,42 @@ fun TopControlBar(
                 }
             }
 
-            // RAW toggle chip (if supported in Photo mode)
+            // Video Mode: Direct Video Quality Chip (4K 30, 4K 60, 1080p 30, etc.)
+            if (cameraMode == CameraMode.VIDEO) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFE53935).copy(alpha = 0.25f),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        Color(0xFFFF5252).copy(alpha = 0.8f)
+                    ),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onVideoQualityClick() }
+                        .testTag("video_quality_chip")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFFF5252))
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = videoQuality.badgeLabel,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            // Photo Mode: RAW toggle chip (if supported)
             if (cameraMode == CameraMode.PHOTO && supportsRaw) {
                 Surface(
                     shape = RoundedCornerShape(12.dp),

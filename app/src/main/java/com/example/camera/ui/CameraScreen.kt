@@ -130,6 +130,7 @@ fun CameraScreen(
     val videoFps by viewModel.videoFps.collectAsStateWithLifecycle()
     val colorProfile by viewModel.colorProfile.collectAsStateWithLifecycle()
     val isAudioEnabled by viewModel.isAudioEnabled.collectAsStateWithLifecycle()
+    val currentVideoQuality by viewModel.currentVideoQuality.collectAsStateWithLifecycle()
 
     Box(
         modifier = modifier
@@ -165,6 +166,8 @@ fun CameraScreen(
             isRawEnabled = isRawEnabled,
             supportsRaw = capabilities.supportsRaw,
             storageStats = storageStats,
+            videoQuality = currentVideoQuality,
+            onVideoQualityClick = { viewModel.cycleVideoQuality() },
             onFlashClick = { viewModel.cycleFlashMode() },
             onTimerClick = { viewModel.cycleTimerMode() },
             onGridClick = { viewModel.cycleGridType() },

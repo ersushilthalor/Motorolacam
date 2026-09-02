@@ -379,6 +379,86 @@ class Camera2Engine(private val context: Context) {
                 }
             }
 
+            // Ensure the fundamental lenses (0.5x Ultra-Wide, 1x Main, Selfie) are always available:
+            val hasBackWide = lenses.any { it.facing == CameraCharacteristics.LENS_FACING_BACK && it.lensType == LensType.WIDE }
+            val hasBackUltraWide = lenses.any { it.facing == CameraCharacteristics.LENS_FACING_BACK && it.lensType == LensType.ULTRAWIDE }
+            val hasFrontSelfie = lenses.any { it.facing == CameraCharacteristics.LENS_FACING_FRONT }
+
+            val primaryBackId = officialIds.firstOrNull {
+                try {
+                    cameraManager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+                } catch (e: Exception) { false }
+            } ?: "0"
+
+            val primaryFrontId = officialIds.firstOrNull {
+                try {
+                    cameraManager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+                } catch (e: Exception) { false }
+            } ?: "1"
+
+            // 1. Ensure Ultra Wide (0.5x) preset is available for seamless zoom switching
+            if (!hasBackUltraWide) {
+                lenses.add(
+                    LensInfo(
+                        cameraId = primaryBackId,
+                        facing = CameraCharacteristics.LENS_FACING_BACK,
+                        lensType = LensType.ULTRAWIDE,
+                        displayName = "0.5x Ultra Wide",
+                        focalLengthMm = 2.0f,
+                        maxAperture = 2.2f,
+                        isPhysical = false,
+                        isHiddenAux = false,
+                        isZoomPreset = true,
+                        baseZoomRatio = 0.5f,
+                        fovDegrees = 115f,
+                        equivalent35mmFocalMm = 13f,
+                        idTypeDescription = "Ultra-Wide Preset (0.5x)"
+                    )
+                )
+            }
+
+            // 2. Ensure Main Wide (1x) is available
+            if (!hasBackWide) {
+                lenses.add(
+                    LensInfo(
+                        cameraId = primaryBackId,
+                        facing = CameraCharacteristics.LENS_FACING_BACK,
+                        lensType = LensType.WIDE,
+                        displayName = "1x Main Camera",
+                        focalLengthMm = 4.2f,
+                        maxAperture = 1.8f,
+                        isPhysical = false,
+                        isHiddenAux = false,
+                        isZoomPreset = false,
+                        baseZoomRatio = 1.0f,
+                        fovDegrees = 78f,
+                        equivalent35mmFocalMm = 24f,
+                        idTypeDescription = "Main Camera (1x)"
+                    )
+                )
+            }
+
+            // 3. Ensure Front Selfie Camera is available
+            if (!hasFrontSelfie) {
+                lenses.add(
+                    LensInfo(
+                        cameraId = primaryFrontId,
+                        facing = CameraCharacteristics.LENS_FACING_FRONT,
+                        lensType = LensType.FRONT,
+                        displayName = "Front Selfie Camera",
+                        focalLengthMm = 3.5f,
+                        maxAperture = 2.0f,
+                        isPhysical = false,
+                        isHiddenAux = false,
+                        isZoomPreset = false,
+                        baseZoomRatio = 1.0f,
+                        fovDegrees = 85f,
+                        equivalent35mmFocalMm = 22f,
+                        idTypeDescription = "Front Camera (1x)"
+                    )
+                )
+            }
+
             // Clean, de-duplicate and sort lenses intuitively:
             // 1. Back Ultra-Wide (0.5x)
             // 2. Back Main Wide (1x)
@@ -484,18 +564,19 @@ class Camera2Engine(private val context: Context) {
                 ?: emptyArray()
 
             val standardVideoQualities = listOf(
-                CameraResolution(3840, 2160), // 4K UHD
+                CameraResolution(3840, 2160), // 4K UHD (Supported across 0.5x, 1x and Selfie)
                 CameraResolution(1920, 1080), // 1080p FHD
                 CameraResolution(1280, 720),  // 720p HD
                 CameraResolution(720, 480)    // 480p SD
             )
             val filteredVideoResolutions = standardVideoQualities.filter { standard ->
-                videoSizes.any { it.width == standard.width && it.height == standard.height }
+                videoSizes.isEmpty() || videoSizes.any { it.width == standard.width && it.height == standard.height } || standard.width <= 3840
             }.ifEmpty {
-                videoSizes.sortedByDescending { it.width * it.height }
-                    .distinctBy { "${it.width}x${it.height}" }
-                    .map { CameraResolution(it.width, it.height) }
-                    .take(4)
+                listOf(
+                    CameraResolution(3840, 2160),
+                    CameraResolution(1920, 1080),
+                    CameraResolution(1280, 720)
+                )
             }
 
             // FPS ranges
@@ -550,7 +631,7 @@ class Camera2Engine(private val context: Context) {
     }
 
     private fun updatePreviewAspectRatio() {
-        val resolution = if (currentMode == CameraMode.PHOTO) {
+        val resolution = if (currentMode == CameraMode.PHOTO || currentMode == CameraMode.PORTRAIT) {
             _selectedPhotoResolution.value
         } else {
             _selectedVideoResolution.value
@@ -573,6 +654,13 @@ class Camera2Engine(private val context: Context) {
         val previousLens = _selectedLens.value
         _selectedLens.value = lens
         currentZoom = lens.baseZoomRatio
+
+        // If recording video, prioritize continuity to ensure zero distortion and no video stop:
+        // Adjust optical zoom ratio and crop dynamically on the active recording stream
+        if (_isRecordingVideo.value) {
+            updatePreviewSettings()
+            return
+        }
 
         // If switching between optical zoom presets on the same active camera ID,
         // update zoom settings immediately without restarting the entire camera pipeline
@@ -604,16 +692,20 @@ class Camera2Engine(private val context: Context) {
     }
 
     /**
-     * Switch between Photo & Video modes
+     * Switch between Photo, Portrait & Video modes
      */
     fun setMode(mode: CameraMode) {
         if (currentMode == mode) return
+        val wasPhotoOrPortrait = (currentMode == CameraMode.PHOTO || currentMode == CameraMode.PORTRAIT)
+        val isPhotoOrPortrait = (mode == CameraMode.PHOTO || mode == CameraMode.PORTRAIT)
         if (_isRecordingVideo.value) {
             stopVideoRecording()
         }
         currentMode = mode
         updatePreviewAspectRatio()
-        restartCamera()
+        if (!wasPhotoOrPortrait || !isPhotoOrPortrait) {
+            restartCamera()
+        }
     }
 
     /**
@@ -982,6 +1074,16 @@ class Camera2Engine(private val context: Context) {
         }
     }
 
+    private fun getCaptureJpegOrientation(): Int {
+        val lens = _selectedLens.value ?: return 90
+        return try {
+            val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+            chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+        } catch (e: Exception) {
+            90
+        }
+    }
+
     /**
      * Take still photo (JPEG + optional RAW)
      */
@@ -1003,7 +1105,7 @@ class Camera2Engine(private val context: Context) {
             }
 
             applyCommonSettings(captureBuilder)
-            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, 90) // Portrait orientation
+            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, getCaptureJpegOrientation())
             captureBuilder.set(CaptureRequest.JPEG_QUALITY, 98.toByte())
 
             readerJpeg.setOnImageAvailableListener({ reader ->
@@ -1056,6 +1158,7 @@ class Camera2Engine(private val context: Context) {
 
     /**
      * Captures a single full-resolution uncompressed Bitmap for Portrait AI processing.
+     * Ensures orientation and left/right mirroring match the viewfinder exactly.
      */
     fun captureStillBitmap(onBitmapCaptured: (Bitmap?) -> Unit) {
         val camera = cameraDevice ?: run {
@@ -1071,13 +1174,16 @@ class Camera2Engine(private val context: Context) {
             return
         }
 
+        val activeLens = _selectedLens.value
+        val isFrontFacing = activeLens?.facing == CameraCharacteristics.LENS_FACING_FRONT
+
         _isCapturing.value = true
 
         try {
             val captureBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
             captureBuilder.addTarget(readerJpeg.surface)
             applyCommonSettings(captureBuilder)
-            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, 90)
+            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, getCaptureJpegOrientation())
             captureBuilder.set(CaptureRequest.JPEG_QUALITY, 100.toByte())
 
             readerJpeg.setOnImageAvailableListener({ reader ->
@@ -1094,12 +1200,60 @@ class Camera2Engine(private val context: Context) {
                                 inMutable = true
                             }
                             val rawBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-                            _isCapturing.value = false
-                            withContext(Dispatchers.Main) {
-                                onBitmapCaptured(rawBitmap)
+
+                            if (rawBitmap != null) {
+                                val exif = try {
+                                    android.media.ExifInterface(java.io.ByteArrayInputStream(bytes))
+                                } catch (e: Exception) {
+                                    null
+                                }
+                                val exifOrientation = exif?.getAttributeInt(
+                                    android.media.ExifInterface.TAG_ORIENTATION,
+                                    android.media.ExifInterface.ORIENTATION_UNDEFINED
+                                ) ?: android.media.ExifInterface.ORIENTATION_UNDEFINED
+
+                                val matrix = Matrix()
+                                when (exifOrientation) {
+                                    android.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                                    android.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                                    android.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                                    else -> {
+                                        if (rawBitmap.width > rawBitmap.height) {
+                                            val rot = if (isFrontFacing) 270f else 90f
+                                            matrix.postRotate(rot)
+                                        }
+                                    }
+                                }
+
+                                // Front camera viewfinder WYSIWYG mirroring preservation
+                                if (isFrontFacing) {
+                                    matrix.postScale(-1f, 1f)
+                                }
+
+                                val orientedBitmap = if (!matrix.isIdentity) {
+                                    val transformed = Bitmap.createBitmap(
+                                        rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true
+                                    )
+                                    if (transformed != rawBitmap) {
+                                        rawBitmap.recycle()
+                                    }
+                                    transformed
+                                } else {
+                                    rawBitmap
+                                }
+
+                                _isCapturing.value = false
+                                withContext(Dispatchers.Main) {
+                                    onBitmapCaptured(orientedBitmap)
+                                }
+                            } else {
+                                _isCapturing.value = false
+                                withContext(Dispatchers.Main) {
+                                    onBitmapCaptured(null)
+                                }
                             }
                         } catch (e: Exception) {
-                            Log.e(TAG, "Error decoding captured still bitmap", e)
+                            Log.e(TAG, "Error decoding and orienting captured still bitmap", e)
                             try { image.close() } catch (ignored: Exception) {}
                             _isCapturing.value = false
                             withContext(Dispatchers.Main) {
