@@ -1,7 +1,9 @@
 package com.example.camera.viewmodel
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.net.Uri
+import android.util.Log
 import androidx.compose.ui.geometry.Offset
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -9,10 +11,13 @@ import com.example.camera.data.CameraPreferences
 import com.example.camera.engine.Camera2Engine
 import com.example.camera.engine.PortraitProcessor
 import com.example.camera.model.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class ProControlTab(val label: String) {
     EXPOSURE("EV"),
@@ -88,6 +93,24 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     // Focus indicator ring
     private val _focusRingPoint = MutableStateFlow<Offset?>(null)
     val focusRingPoint: StateFlow<Offset?> = _focusRingPoint.asStateFlow()
+
+    // Mirror Selfie (Save selfie as previewed without flipping)
+    private val _saveSelfieAsPreviewed = MutableStateFlow(preferences.saveSelfieAsPreviewed)
+    val saveSelfieAsPreviewed: StateFlow<Boolean> = _saveSelfieAsPreviewed.asStateFlow()
+
+    // Portrait Settings Window Open/Close
+    private val _isPortraitSettingsOpen = MutableStateFlow(true)
+    val isPortraitSettingsOpen: StateFlow<Boolean> = _isPortraitSettingsOpen.asStateFlow()
+
+    // Video HDR State & Panel visibility
+    val videoHdrState: StateFlow<VideoHdrState> = engine.videoHdrState
+    private val _isVideoHdrPanelOpen = MutableStateFlow(true)
+    val isVideoHdrPanelOpen: StateFlow<Boolean> = _isVideoHdrPanelOpen.asStateFlow()
+
+    // Background Sequential Queue for Portrait Processing
+    // Strictly queues portrait captures sequentially to prevent duplicate processing,
+    // memory spikes, and crashes during rapid multi-photo captures.
+    private val portraitProcessingChannel = Channel<Pair<Bitmap, PortraitConfig>>(capacity = 10)
 
     // Toast/Feedback banner
     private val _toastMessage = MutableStateFlow<String?>(null)
@@ -169,8 +192,90 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         engine.isAudioEnabled = preferences.isAudioEnabled
         engine.whiteBalanceMode = preferences.whiteBalance
         engine.focusMode = preferences.focusMode
+        engine.saveSelfieAsPreviewed = preferences.saveSelfieAsPreviewed
+        engine.setVideoHdrMode(preferences.videoHdrMode)
+        engine.setVideoHdrManualIntensity(preferences.videoHdrManualIntensity)
         engine.setMode(preferences.cameraMode)
         engine.selectVideoResolution(CameraResolution(preferences.videoWidth, preferences.videoHeight))
+
+        // Sequential background portrait processor
+        // Processes portrait jobs safely one by one in the background without UI blocking,
+        // memory spikes, or duplicate processing crashes.
+        viewModelScope.launch(Dispatchers.Default) {
+            for ((bitmap, config) in portraitProcessingChannel) {
+                try {
+                    val uri = portraitProcessor.processAndSavePortrait(
+                        orientedBitmap = bitmap,
+                        config = config
+                    )
+                    if (uri != null) {
+                        withContext(Dispatchers.Main) {
+                            showToast("Portrait saved to DCIM/Camera")
+                            engine.updateStorageStats()
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            showToast("Portrait processing failed")
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.e("CameraViewModel", "Error in background portrait processing", t)
+                } finally {
+                    try {
+                        if (!bitmap.isRecycled) {
+                            bitmap.recycle()
+                        }
+                    } catch (ignored: Exception) {}
+                }
+            }
+        }
+    }
+
+    fun setPortraitSettingsOpen(isOpen: Boolean) {
+        _isPortraitSettingsOpen.value = isOpen
+    }
+
+    fun toggleSaveSelfieAsPreviewed() {
+        val next = !_saveSelfieAsPreviewed.value
+        _saveSelfieAsPreviewed.value = next
+        preferences.saveSelfieAsPreviewed = next
+        engine.saveSelfieAsPreviewed = next
+        showToast(if (next) "Save selfie as previewed: ON" else "Save selfie as previewed: OFF")
+    }
+
+    fun setSaveSelfieAsPreviewed(enabled: Boolean) {
+        _saveSelfieAsPreviewed.value = enabled
+        preferences.saveSelfieAsPreviewed = enabled
+        engine.saveSelfieAsPreviewed = enabled
+    }
+
+    // Video HDR Controls
+    fun setVideoHdrMode(mode: VideoHdrMode) {
+        preferences.videoHdrMode = mode
+        engine.setVideoHdrMode(mode)
+        showToast("Video HDR: ${mode.label}")
+    }
+
+    fun cycleVideoHdrMode() {
+        val next = when (videoHdrState.value.mode) {
+            VideoHdrMode.OFF -> VideoHdrMode.AUTO
+            VideoHdrMode.AUTO -> VideoHdrMode.MANUAL
+            VideoHdrMode.MANUAL -> VideoHdrMode.OFF
+        }
+        setVideoHdrMode(next)
+    }
+
+    fun setVideoHdrManualIntensity(intensity: Int) {
+        preferences.videoHdrManualIntensity = intensity
+        engine.setVideoHdrManualIntensity(intensity)
+    }
+
+    fun setVideoHdrPanelOpen(isOpen: Boolean) {
+        _isVideoHdrPanelOpen.value = isOpen
+    }
+
+    fun toggleVideoHdrPanel() {
+        _isVideoHdrPanelOpen.value = !_isVideoHdrPanelOpen.value
     }
 
     fun setCameraMode(mode: CameraMode) {
@@ -493,7 +598,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun triggerPortraitCapture() {
-        if (engine.isCapturing.value || _portraitProcessingState.value.isProcessing) return
+        if (engine.isCapturing.value) return
 
         val timerSeconds = _timerMode.value.seconds
         if (timerSeconds > 0) {
@@ -512,39 +617,19 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun executePortraitCapture() {
-        _portraitProcessingState.value = PortraitProcessingState(
-            isProcessing = true,
-            progress = 0.05f,
-            statusText = "Capturing full-resolution frame..."
-        )
-
         engine.captureStillBitmap { capturedBitmap ->
             if (capturedBitmap == null) {
-                _portraitProcessingState.value = PortraitProcessingState(isProcessing = false)
                 showToast("Portrait capture failed")
                 return@captureStillBitmap
             }
 
-            viewModelScope.launch {
-                val config = _portraitConfig.value
-                val uri = portraitProcessor.processAndSavePortrait(
-                    orientedBitmap = capturedBitmap,
-                    config = config,
-                    onProgress = { progress, status ->
-                        _portraitProcessingState.value = PortraitProcessingState(
-                            isProcessing = true,
-                            progress = progress,
-                            statusText = status
-                        )
-                    }
-                )
-
-                _portraitProcessingState.value = PortraitProcessingState(isProcessing = false)
-                if (uri != null) {
-                    showToast("Portrait saved to DCIM/Camera")
-                    engine.updateStorageStats()
-                } else {
-                    showToast("Portrait processing failed")
+            // Immediately return to camera viewfinder and process in the background.
+            // No progress or loading UI is shown.
+            val config = _portraitConfig.value
+            val result = portraitProcessingChannel.trySend(Pair(capturedBitmap, config))
+            if (!result.isSuccess) {
+                viewModelScope.launch(Dispatchers.Default) {
+                    portraitProcessingChannel.send(Pair(capturedBitmap, config))
                 }
             }
         }

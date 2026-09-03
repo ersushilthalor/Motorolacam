@@ -158,8 +158,8 @@ fun BottomControlBar(
                     )
 
                     val label = when {
-                        lens.isPhysical -> "P${lens.cameraId}"
-                        lens.isHiddenAux -> "Aux${lens.cameraId}"
+                        availableLenses.count { it.lensType == lens.lensType } > 1 && lens.isHiddenAux ->
+                            "${lens.lensType.shortLabel}*"
                         else -> lens.lensType.shortLabel
                     }
 

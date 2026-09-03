@@ -32,7 +32,9 @@ fun TopControlBar(
     supportsRaw: Boolean,
     storageStats: StorageStats,
     videoQuality: VideoQualityOption = VideoQualityOption.UHD_4K_30,
+    hdrState: VideoHdrState = VideoHdrState(),
     onVideoQualityClick: () -> Unit = {},
+    onHdrClick: () -> Unit = {},
     onFlashClick: () -> Unit,
     onTimerClick: () -> Unit,
     onGridClick: () -> Unit,
@@ -99,37 +101,82 @@ fun TopControlBar(
                 }
             }
 
-            // Video Mode: Direct Video Quality Chip (4K 30, 4K 60, 1080p 30, etc.)
+            // Video Mode: Direct HDR & Video Quality Chips
             if (cameraMode == CameraMode.VIDEO) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFE53935).copy(alpha = 0.25f),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        Color(0xFFFF5252).copy(alpha = 0.8f)
-                    ),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { onVideoQualityClick() }
-                        .testTag("video_quality_chip")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // HDR Chip
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                                else Color.Black.copy(alpha = 0.55f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                            else Color.White.copy(alpha = 0.2f)
+                        ),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onHdrClick() }
+                            .testTag("top_hdr_chip")
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFFF5252))
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = videoQuality.badgeLabel,
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (hdrState.isHdrActive) Icons.Default.HdrOn else Icons.Default.HdrOff,
+                                contentDescription = "Video HDR",
+                                tint = if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.6f),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = when (hdrState.mode) {
+                                    com.example.camera.model.VideoHdrMode.OFF -> "HDR OFF"
+                                    com.example.camera.model.VideoHdrMode.AUTO -> "HDR AUTO"
+                                    com.example.camera.model.VideoHdrMode.MANUAL -> "HDR ${hdrState.manualIntensity}%"
+                                },
+                                color = if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.7f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Video Quality Chip
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFE53935).copy(alpha = 0.25f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            Color(0xFFFF5252).copy(alpha = 0.8f)
+                        ),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onVideoQualityClick() }
+                            .testTag("video_quality_chip")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFF5252))
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = videoQuality.badgeLabel,
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }

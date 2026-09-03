@@ -11,10 +11,12 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
@@ -104,6 +106,10 @@ fun CameraScreen(
 
     val portraitConfig by viewModel.portraitConfig.collectAsStateWithLifecycle()
     val portraitProcessingState by viewModel.portraitProcessingState.collectAsStateWithLifecycle()
+    val isPortraitSettingsOpen by viewModel.isPortraitSettingsOpen.collectAsStateWithLifecycle()
+    val saveSelfieAsPreviewed by viewModel.saveSelfieAsPreviewed.collectAsStateWithLifecycle()
+    val videoHdrState by viewModel.videoHdrState.collectAsStateWithLifecycle()
+    val isVideoHdrPanelOpen by viewModel.isVideoHdrPanelOpen.collectAsStateWithLifecycle()
 
     val flashMode by viewModel.flashMode.collectAsStateWithLifecycle()
     val timerMode by viewModel.timerMode.collectAsStateWithLifecycle()
@@ -167,7 +173,9 @@ fun CameraScreen(
             supportsRaw = capabilities.supportsRaw,
             storageStats = storageStats,
             videoQuality = currentVideoQuality,
+            hdrState = videoHdrState,
             onVideoQualityClick = { viewModel.cycleVideoQuality() },
+            onHdrClick = { viewModel.toggleVideoHdrPanel() },
             onFlashClick = { viewModel.cycleFlashMode() },
             onTimerClick = { viewModel.cycleTimerMode() },
             onGridClick = { viewModel.cycleGridType() },
@@ -209,7 +217,7 @@ fun CameraScreen(
 
         // 3b. Dedicated Portrait Mode AI Controls Panel
         AnimatedVisibility(
-            visible = cameraMode == CameraMode.PORTRAIT,
+            visible = cameraMode == CameraMode.PORTRAIT && isPortraitSettingsOpen,
             enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
             modifier = Modifier
@@ -224,7 +232,71 @@ fun CameraScreen(
                 onBokehStyleSelected = { viewModel.setPortraitBokehStyle(it) },
                 onToggleFaceEnhancement = { viewModel.togglePortraitFaceEnhancement() },
                 onToggleSkinTone = { viewModel.togglePortraitSkinTone() },
+                onClose = { viewModel.setPortraitSettingsOpen(false) },
                 modifier = Modifier.padding(horizontal = 12.dp)
+            )
+        }
+
+        // Floating button to reopen Portrait Settings when closed
+        if (cameraMode == CameraMode.PORTRAIT && !isPortraitSettingsOpen) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.7f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD54F).copy(alpha = 0.6f)),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 190.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable { viewModel.setPortraitSettingsOpen(true) }
+                    .testTag("open_portrait_settings_button")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "Open portrait settings",
+                        tint = Color(0xFFFFD54F),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Portrait Settings",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
+        // 3c. Dedicated Video Mode Real-Time HDR Controls Panel
+        AnimatedVisibility(
+            visible = cameraMode == CameraMode.VIDEO && isVideoHdrPanelOpen,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 190.dp)
+        ) {
+            VideoHdrControlBar(
+                hdrState = videoHdrState,
+                onModeChanged = { viewModel.setVideoHdrMode(it) },
+                onIntensityChanged = { viewModel.setVideoHdrManualIntensity(it) },
+                onClose = { viewModel.setVideoHdrPanelOpen(false) },
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+        }
+
+        // Floating button to reopen Video HDR Controls when closed
+        if (cameraMode == CameraMode.VIDEO && !isVideoHdrPanelOpen) {
+            VideoHdrFloatingButton(
+                hdrState = videoHdrState,
+                onClick = { viewModel.setVideoHdrPanelOpen(true) },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 190.dp)
             )
         }
 
@@ -295,6 +367,8 @@ fun CameraScreen(
             isVideoStabilizationEnabled = isVideoStabilizationEnabled,
             isAudioEnabled = isAudioEnabled,
             isRawEnabled = isRawEnabled,
+            saveSelfieAsPreviewed = saveSelfieAsPreviewed,
+            hdrState = videoHdrState,
             onLensSelected = { viewModel.selectLens(it) },
             onForceDeepScan = { viewModel.forceDeepScanLenses() },
             onPhotoResolutionSelected = { viewModel.selectPhotoResolution(it) },
@@ -304,6 +378,9 @@ fun CameraScreen(
             onStabilizationToggle = { viewModel.setVideoStabilization(it) },
             onAudioToggle = { viewModel.toggleAudio() },
             onRawToggle = { viewModel.toggleRawCapture() },
+            onSaveSelfieAsPreviewedToggle = { viewModel.setSaveSelfieAsPreviewed(it) },
+            onHdrModeSelected = { viewModel.setVideoHdrMode(it) },
+            onHdrIntensityChanged = { viewModel.setVideoHdrManualIntensity(it) },
             onDismiss = { viewModel.setSettingsOpen(false) }
         )
 

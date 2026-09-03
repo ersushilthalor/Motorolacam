@@ -35,12 +35,13 @@ import com.example.camera.model.PortraitProcessingState
 @Composable
 fun PortraitControlBar(
     config: PortraitConfig,
-    processingState: PortraitProcessingState,
+    processingState: PortraitProcessingState = PortraitProcessingState(),
     onBlurStrengthChanged: (Float) -> Unit,
     onApertureSelected: (String) -> Unit,
     onBokehStyleSelected: (BokehStyle) -> Unit,
     onToggleFaceEnhancement: () -> Unit,
     onToggleSkinTone: () -> Unit,
+    onClose: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val apertures = listOf("f/0.95", "f/1.2", "f/1.4", "f/1.8", "f/2.4", "f/2.8")
@@ -64,56 +65,46 @@ fun PortraitControlBar(
             )
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // Processing Progress Banner (when portrait depth calculation is running)
-        AnimatedVisibility(
-            visible = processingState.isProcessing,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
+        // Top Header with Title and Clear Close (X) Button
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                color = Color(0xFFFFD54F).copy(alpha = 0.18f),
-                shape = RoundedCornerShape(12.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD54F).copy(alpha = 0.4f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 10.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    CircularProgressIndicator(
-                        progress = { processingState.progress },
-                        modifier = Modifier.size(20.dp),
-                        color = Color(0xFFFFD54F),
-                        strokeWidth = 2.5.dp
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = processingState.statusText.ifEmpty { "AI Portrait Processing..." },
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        LinearProgressIndicator(
-                            progress = { processingState.progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 4.dp)
-                                .height(3.dp)
-                                .clip(CircleShape),
-                            color = Color(0xFFFFD54F),
-                            trackColor = Color.White.copy(alpha = 0.15f)
-                        )
-                    }
-                    Text(
-                        text = "${(processingState.progress * 100).toInt()}%",
-                        color = Color(0xFFFFD54F),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = Color(0xFFFFD54F),
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = "Portrait Settings",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.12f))
+                    .testTag("close_portrait_settings")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close portrait settings",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
 

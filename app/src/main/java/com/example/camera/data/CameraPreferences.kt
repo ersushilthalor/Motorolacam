@@ -38,6 +38,9 @@ class CameraPreferences(context: Context) {
         private const val KEY_LAST_FACING = "pref_last_facing"
         private const val KEY_PORTRAIT_BLUR = "pref_portrait_blur"
         private const val KEY_PORTRAIT_APERTURE = "pref_portrait_aperture"
+        private const val KEY_SAVE_SELFIE_AS_PREVIEWED = "pref_save_selfie_as_previewed"
+        private const val KEY_VIDEO_HDR_MODE = "pref_video_hdr_mode"
+        private const val KEY_VIDEO_HDR_INTENSITY = "pref_video_hdr_intensity"
     }
 
     var cameraMode: CameraMode
@@ -131,4 +134,20 @@ class CameraPreferences(context: Context) {
     var portraitAperture: String
         get() = prefs.getString(KEY_PORTRAIT_APERTURE, "f/1.4") ?: "f/1.4"
         set(value) = prefs.edit().putString(KEY_PORTRAIT_APERTURE, value).apply()
+
+    var saveSelfieAsPreviewed: Boolean
+        get() = prefs.getBoolean(KEY_SAVE_SELFIE_AS_PREVIEWED, true)
+        set(value) = prefs.edit().putBoolean(KEY_SAVE_SELFIE_AS_PREVIEWED, value).apply()
+
+    var videoHdrMode: com.example.camera.model.VideoHdrMode
+        get() {
+            val name = prefs.getString(KEY_VIDEO_HDR_MODE, com.example.camera.model.VideoHdrMode.AUTO.name)
+                ?: com.example.camera.model.VideoHdrMode.AUTO.name
+            return try { com.example.camera.model.VideoHdrMode.valueOf(name) } catch (e: Exception) { com.example.camera.model.VideoHdrMode.AUTO }
+        }
+        set(value) = prefs.edit().putString(KEY_VIDEO_HDR_MODE, value.name).apply()
+
+    var videoHdrManualIntensity: Int
+        get() = prefs.getInt(KEY_VIDEO_HDR_INTENSITY, 50)
+        set(value) = prefs.edit().putInt(KEY_VIDEO_HDR_INTENSITY, value.coerceIn(0, 100)).apply()
 }

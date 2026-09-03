@@ -68,60 +68,102 @@ class PortraitProcessor(private val context: Context) {
         config: PortraitConfig,
         onProgress: (Float, String) -> Unit = { _, _ -> }
     ): Uri? = withContext(Dispatchers.Default) {
+        var scaledProcessingBitmap: Bitmap? = null
+        var mlBitmap: Bitmap? = null
+        var blurredBackground: Bitmap? = null
+        var finalPortrait: Bitmap? = null
+
         try {
-            onProgress(0.08f, "Analyzing subject & scene contours...")
-
-            val width = orientedBitmap.width
-            val height = orientedBitmap.height
-            val inputImage = InputImage.fromBitmap(orientedBitmap, 0)
-
-            // Step 1: Run On-Device ML Kit Subject Segmentation
-            val maskResult = withContext(Dispatchers.IO) {
-                val task = segmenter.process(inputImage)
-                Tasks.await(task)
-            }
-
-            onProgress(0.22f, "Extracting high-res confidence field...")
-
-            val maskWidth = maskResult.width
-            val maskHeight = maskResult.height
-            val maskBuffer: ByteBuffer = maskResult.buffer
-            maskBuffer.rewind()
-
-            val rawMask = FloatArray(maskWidth * maskHeight)
-            var maxConfidence = 0.0f
-            var foregroundCount = 0
-
-            for (i in 0 until (maskWidth * maskHeight)) {
-                val conf = maskBuffer.float.coerceIn(0f, 1f)
-                rawMask[i] = conf
-                if (conf > maxConfidence) maxConfidence = conf
-                if (conf > 0.5f) foregroundCount++
-            }
-
-            // Subject safety factor
-            val coverage = foregroundCount.toFloat() / (maskWidth * maskHeight)
-            val confidenceFactor = when {
-                maxConfidence < 0.20f || coverage < 0.005f -> 0.15f
-                maxConfidence < 0.45f -> 0.50f
-                else -> 1.0f
-            }
-
-            onProgress(0.38f, "Extracting multi-channel hair & edge guide...")
-
-            // Step 2: High-resolution mask upscaling & multi-channel guide extraction
-            val initialAlpha = if (maskWidth == width && maskHeight == height) {
-                rawMask
+            // Step 0: Ensure memory-safe processing resolution to prevent OutOfMemoryError
+            val maxProcessingDimension = 1920
+            val maxOriginalDim = max(orientedBitmap.width, orientedBitmap.height)
+            val processingBitmap = if (maxOriginalDim > maxProcessingDimension) {
+                val scale = maxProcessingDimension.toFloat() / maxOriginalDim
+                val targetW = (orientedBitmap.width * scale).toInt().coerceAtLeast(1)
+                val targetH = (orientedBitmap.height * scale).toInt().coerceAtLeast(1)
+                Bitmap.createScaledBitmap(orientedBitmap, targetW, targetH, true).also {
+                    scaledProcessingBitmap = it
+                }
             } else {
-                upsampleMaskBilinear(rawMask, maskWidth, maskHeight, width, height)
+                orientedBitmap
             }
 
-            val guideChannels = extractMultiChannelGuide(orientedBitmap, width, height)
+            val width = processingBitmap.width
+            val height = processingBitmap.height
 
-            onProgress(0.50f, "Applying hair-aware guided alpha matting...")
+            // Prepare downscaled bitmap for ML Kit segmentation (ML Kit operates optimally around ~512px)
+            val mlScale = (512f / max(width, height)).coerceAtMost(1.0f)
+            val targetMlW = (width * mlScale).toInt().coerceAtLeast(1)
+            val targetMlH = (height * mlScale).toInt().coerceAtLeast(1)
+            val inputForMl = if (mlScale < 1.0f) {
+                Bitmap.createScaledBitmap(processingBitmap, targetMlW, targetMlH, true).also {
+                    mlBitmap = it
+                }
+            } else {
+                processingBitmap
+            }
+            val inputImage = InputImage.fromBitmap(inputForMl, 0)
+
+            // Step 1: Run On-Device ML Kit Subject Segmentation safely
+            val maskResult = try {
+                withContext(Dispatchers.IO) {
+                    val task = segmenter.process(inputImage)
+                    Tasks.await(task)
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "ML Kit segmentation error, falling back to center-weighted depth", e)
+                null
+            }
+
+            val initialAlpha: FloatArray
+            val confidenceFactor: Float
+
+            if (maskResult != null) {
+                val maskWidth = maskResult.width
+                val maskHeight = maskResult.height
+                val maskBuffer: ByteBuffer = maskResult.buffer
+                maskBuffer.rewind()
+
+                val rawMask = FloatArray(maskWidth * maskHeight)
+                var maxConfidence = 0.0f
+                var foregroundCount = 0
+
+                for (i in 0 until (maskWidth * maskHeight)) {
+                    val conf = maskBuffer.float.coerceIn(0f, 1f)
+                    rawMask[i] = conf
+                    if (conf > maxConfidence) maxConfidence = conf
+                    if (conf > 0.5f) foregroundCount++
+                }
+
+                val coverage = foregroundCount.toFloat() / (maskWidth * maskHeight)
+                confidenceFactor = when {
+                    maxConfidence < 0.20f || coverage < 0.005f -> 0.20f
+                    maxConfidence < 0.45f -> 0.55f
+                    else -> 1.0f
+                }
+
+                initialAlpha = if (maskWidth == width && maskHeight == height) {
+                    rawMask
+                } else {
+                    upsampleMaskBilinear(rawMask, maskWidth, maskHeight, width, height)
+                }
+            } else {
+                // Fallback: graceful center-focused subject mask for robust portrait rendering
+                confidenceFactor = 0.8f
+                initialAlpha = FloatArray(width * height) { idx ->
+                    val x = idx % width
+                    val y = idx / width
+                    val dx = (x - width * 0.5f) / (width * 0.42f)
+                    val dy = (y - height * 0.52f) / (height * 0.45f)
+                    val distSq = dx * dx + dy * dy
+                    (1f - (distSq - 0.25f) / 0.75f).coerceIn(0f, 1f)
+                }
+            }
+
+            // Step 2: Extract multi-channel hair & edge guide
+            val guideChannels = extractMultiChannelGuide(processingBitmap, width, height)
 
             // Step 3: Dual-Scale Color & Gradient-Guided Alpha Matting
-            // Transfers individual hair strands, flyaways, earbuds, eyeglasses, eyelashes, and clothing edges
             val mattedAlpha = applyDualScaleGuidedMatting(
                 guideLuma = guideChannels.luminance,
                 guideEdges = guideChannels.edgeMagnitude,
@@ -130,17 +172,11 @@ class PortraitProcessor(private val context: Context) {
                 height = height
             )
 
-            onProgress(0.62f, "Refining edge contours & eliminating halos...")
-
             // Step 4: Morphological edge refinement & halo decontamination
             val refinedAlpha = refineEdgesAndEliminateHalos(mattedAlpha, width, height)
 
-            onProgress(0.72f, "Computing continuous optical depth field...")
-
-            // Step 5: Compute 2D Euclidean continuous depth distance field for smooth lens falloff
+            // Step 5: Compute 2D continuous depth distance field for smooth lens falloff
             val depthField = computeDepthDistanceField(refinedAlpha, width, height)
-
-            onProgress(0.82f, "Rendering optical bokeh (${config.simulatedAperture})...")
 
             // Calculate optical aperture circle-of-confusion radius
             val apertureMultiplier = when (config.simulatedAperture) {
@@ -154,37 +190,51 @@ class PortraitProcessor(private val context: Context) {
             }
 
             val maxBlurRadius = (max(width, height) * 0.028f * (config.blurStrength / 60f) * apertureMultiplier * confidenceFactor)
-                .coerceIn(2f, 110f)
+                .coerceIn(2f, 100f)
 
             // Step 6: Render Multi-Tier Progressive Depth-of-Field Bokeh
-            val blurredBackground = renderProgressiveDepthBokeh(
-                source = orientedBitmap,
+            blurredBackground = renderProgressiveDepthBokeh(
+                source = processingBitmap,
                 depthField = depthField,
                 maxRadius = maxBlurRadius,
                 isStrongBokeh = config.bokehStyle == BokehStyle.STRONG
             )
 
-            onProgress(0.92f, "Compositing 100% sharp subject...")
-
             // Step 7: Composite razor-sharp subject over depth bokeh with edge decontamination
-            val finalPortrait = compositeSharpSubjectWithDecontamination(
-                original = orientedBitmap,
+            finalPortrait = compositeSharpSubjectWithDecontamination(
+                original = processingBitmap,
                 background = blurredBackground,
                 alphaMask = refinedAlpha,
                 skinToneCorrection = config.skinToneCorrection,
                 faceEnhancement = config.faceEnhancement
             )
 
-            onProgress(0.97f, "Saving portrait to gallery...")
-
-            // Step 8: Save to MediaStore (DCIM/Camera) preserving exact orientation and pixel fidelity
+            // Step 8: Save to MediaStore (DCIM/Camera)
             val savedUri = saveToMediaStore(finalPortrait)
-
-            onProgress(1.0f, "Portrait complete")
             savedUri
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed in portrait processing pipeline", e)
-            null
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error in portrait processing pipeline, executing safety fallback save", t)
+            try {
+                saveToMediaStore(orientedBitmap)
+            } catch (fallbackEx: Throwable) {
+                Log.e(TAG, "Safety fallback save also failed", fallbackEx)
+                null
+            }
+        } finally {
+            try {
+                if (scaledProcessingBitmap != null && scaledProcessingBitmap != orientedBitmap && !scaledProcessingBitmap!!.isRecycled) {
+                    scaledProcessingBitmap!!.recycle()
+                }
+                if (mlBitmap != null && mlBitmap != orientedBitmap && !mlBitmap!!.isRecycled) {
+                    mlBitmap!!.recycle()
+                }
+                if (blurredBackground != null && !blurredBackground!!.isRecycled) {
+                    blurredBackground!!.recycle()
+                }
+                if (finalPortrait != null && !finalPortrait!!.isRecycled) {
+                    finalPortrait!!.recycle()
+                }
+            } catch (ignored: Exception) {}
         }
     }
 

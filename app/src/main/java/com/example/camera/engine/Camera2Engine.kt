@@ -125,8 +125,16 @@ class Camera2Engine(private val context: Context) {
     var colorProfile: ColorProfile = ColorProfile.STANDARD
     var isAudioEnabled: Boolean = true
     var currentZoom: Float = 1.0f
+    var saveSelfieAsPreviewed: Boolean = true
+
+    val videoHdrEngine = VideoHdrEngine()
+    private val _videoHdrState = MutableStateFlow(videoHdrEngine.currentState)
+    val videoHdrState: StateFlow<VideoHdrState> = _videoHdrState.asStateFlow()
 
     init {
+        videoHdrEngine.onStateChangedListener = { state ->
+            _videoHdrState.value = state
+        }
         startBackgroundThread()
         detectHardwareLenses()
         updateStorageStats()
@@ -188,6 +196,18 @@ class Camera2Engine(private val context: Context) {
             val lenses = mutableListOf<LensInfo>()
             val processedPhysicalIds = mutableSetOf<String>()
 
+            val primaryBackId = candidateIds.firstOrNull { id ->
+                try {
+                    cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+                } catch (e: Exception) { false }
+            } ?: "0"
+
+            val primaryFrontId = candidateIds.firstOrNull { id ->
+                try {
+                    cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+                } catch (e: Exception) { false }
+            } ?: "1"
+
             for (id in candidateIds) {
                 try {
                     val chars = cameraManager.getCameraCharacteristics(id)
@@ -214,10 +234,12 @@ class Camera2Engine(private val context: Context) {
                             0f
                         }
 
-                        val isUltraWide = (eq35mm in 1.0f..23.5f) || focalMm <= 2.6f || fovDegrees >= 75.0f
-                        val isTele3x = eq35mm >= 70f || focalMm >= 9.0f
-                        val isTele2x = eq35mm in 45f..70f || focalMm in 5.8f..9.0f
-                        val isMacro = minFocus > 10f && focalMm < 3.2f
+                        val isBack = facing == CameraCharacteristics.LENS_FACING_BACK
+                        val isMain = isBack && (id == primaryBackId || eq35mm in 23.5f..38f || (focalMm in 3.2f..5.8f && eq35mm in 22f..40f))
+                        val isUltraWide = isBack && !isMain && ((eq35mm in 1.0f..23.4f) || focalMm <= 2.8f || fovDegrees >= 88.0f)
+                        val isTele3x = isBack && !isMain && (eq35mm >= 70f || focalMm >= 9.0f)
+                        val isTele2x = isBack && !isMain && (eq35mm in 45f..70f || focalMm in 5.9f..9.0f)
+                        val isMacro = isBack && !isMain && minFocus > 10f && focalMm < 3.2f
 
                         val lensType = when {
                             facing == CameraCharacteristics.LENS_FACING_FRONT -> LensType.FRONT
@@ -251,7 +273,7 @@ class Camera2Engine(private val context: Context) {
                                 displayName = displayName,
                                 focalLengthMm = focalMm,
                                 maxAperture = maxAperture,
-                                isPhysical = false,
+                                isPhysical = true,
                                 isHiddenAux = !isOfficial,
                                 isZoomPreset = false,
                                 baseZoomRatio = 1.0f,
@@ -352,8 +374,8 @@ class Camera2Engine(private val context: Context) {
                                 )
                             }
 
-                            // If camera supports >= 2.0f and no 2x lens is present, expose 2x Telephoto preset
-                            if (maxZoom >= 2.0f && lenses.none { it.lensType == LensType.TELEPHOTO }) {
+                            // If camera supports >= 2.0f and no physical telephoto lens is present, expose 2x Telephoto preset
+                            if (maxZoom >= 2.0f && lenses.none { it.facing == facing && (it.lensType == LensType.TELEPHOTO || it.lensType == LensType.TELEPHOTO_3X) }) {
                                 lenses.add(
                                     LensInfo(
                                         cameraId = id,
@@ -383,18 +405,6 @@ class Camera2Engine(private val context: Context) {
             val hasBackWide = lenses.any { it.facing == CameraCharacteristics.LENS_FACING_BACK && it.lensType == LensType.WIDE }
             val hasBackUltraWide = lenses.any { it.facing == CameraCharacteristics.LENS_FACING_BACK && it.lensType == LensType.ULTRAWIDE }
             val hasFrontSelfie = lenses.any { it.facing == CameraCharacteristics.LENS_FACING_FRONT }
-
-            val primaryBackId = officialIds.firstOrNull {
-                try {
-                    cameraManager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
-                } catch (e: Exception) { false }
-            } ?: "0"
-
-            val primaryFrontId = officialIds.firstOrNull {
-                try {
-                    cameraManager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
-                } catch (e: Exception) { false }
-            } ?: "1"
 
             // 1. Ensure Ultra Wide (0.5x) preset is available for seamless zoom switching
             if (!hasBackUltraWide) {
@@ -512,6 +522,7 @@ class Camera2Engine(private val context: Context) {
     fun inspectCapabilities(cameraId: String) {
         try {
             val chars = cameraManager.getCameraCharacteristics(cameraId)
+            videoHdrEngine.onCameraConfigured(chars)
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
 
             val caps = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: intArrayOf()
@@ -631,12 +642,19 @@ class Camera2Engine(private val context: Context) {
     }
 
     private fun updatePreviewAspectRatio() {
-        val resolution = if (currentMode == CameraMode.PHOTO || currentMode == CameraMode.PORTRAIT) {
-            _selectedPhotoResolution.value
-        } else {
-            _selectedVideoResolution.value
+        if (currentMode == CameraMode.VIDEO) {
+            val res = _selectedVideoResolution.value
+            if (res != null && res.height > 0) {
+                val w = max(res.width, res.height).toFloat()
+                val h = min(res.width, res.height).toFloat()
+                _previewAspectRatio.value = w / h
+            } else {
+                _previewAspectRatio.value = 16f / 9f
+            }
+            return
         }
 
+        val resolution = _selectedPhotoResolution.value
         if (resolution != null && resolution.height > 0) {
             // Standard sensor orientation width > height in landscape, in portrait aspect ratio is width / height
             val w = max(resolution.width, resolution.height).toFloat()
@@ -662,13 +680,10 @@ class Camera2Engine(private val context: Context) {
             return
         }
 
-        // If switching between optical zoom presets on the same active camera ID,
-        // update zoom settings immediately without restarting the entire camera pipeline
-        if (previousLens != null && previousLens.cameraId == lens.cameraId && cameraDevice != null && captureSession != null) {
-            updatePreviewSettings()
-            return
-        }
-
+        // When switching lenses (e.g. 0.5x, 1x, 2x):
+        // Always inspect capabilities for the chosen lens's camera ID and restart camera so
+        // that the real physical hardware camera device is opened and configured natively,
+        // preserving preview aspect ratio, zoom ratio, and video stabilization.
         inspectCapabilities(lens.cameraId)
         restartCamera()
     }
@@ -854,6 +869,7 @@ class Camera2Engine(private val context: Context) {
     }
 
     private var lastCaptureResult: TotalCaptureResult? = null
+    private var lastHdrUpdateRequestTime = 0L
 
     private val captureCallback = object : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(
@@ -863,6 +879,23 @@ class Camera2Engine(private val context: Context) {
         ) {
             super.onCaptureCompleted(session, request, result)
             lastCaptureResult = result
+
+            // In Video mode, execute real-time scene analysis and apply adaptive HDR & noise reduction
+            if (currentMode == CameraMode.VIDEO && videoHdrEngine.mode != VideoHdrMode.OFF) {
+                val updated = videoHdrEngine.onFrameCaptured(result)
+                val now = System.currentTimeMillis()
+                // Update capture session repeating request smoothly (throttled to ~120ms to avoid IPC overhead and keep 30/60fps stable)
+                if (updated && (now - lastHdrUpdateRequestTime > 120L)) {
+                    lastHdrUpdateRequestTime = now
+                    try {
+                        val builder = previewRequestBuilder
+                        if (builder != null && captureSession != null) {
+                            videoHdrEngine.applyToCaptureRequest(builder)
+                            captureSession?.setRepeatingRequest(builder.build(), this, backgroundHandler)
+                        }
+                    } catch (ignored: Exception) {}
+                }
+            }
         }
     }
 
@@ -973,6 +1006,11 @@ class Camera2Engine(private val context: Context) {
             }
         }
 
+        // Real-time Video HDR & Adaptive Noise Reduction
+        if (currentMode == CameraMode.VIDEO) {
+            videoHdrEngine.applyToCaptureRequest(builder)
+        }
+
         // Digital Zoom / Crop Region
         applyZoom(builder)
     }
@@ -1020,6 +1058,28 @@ class Camera2Engine(private val context: Context) {
             session.setRepeatingRequest(builder.build(), captureCallback, backgroundHandler)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update preview settings", e)
+        }
+    }
+
+    /**
+     * Change Video HDR Mode (OFF / AUTO / MANUAL)
+     */
+    fun setVideoHdrMode(mode: VideoHdrMode) {
+        videoHdrEngine.mode = mode
+        _videoHdrState.value = videoHdrEngine.currentState
+        if (currentMode == CameraMode.VIDEO) {
+            updatePreviewSettings()
+        }
+    }
+
+    /**
+     * Change Video HDR Manual Intensity (0 to 100)
+     */
+    fun setVideoHdrManualIntensity(intensity: Int) {
+        videoHdrEngine.manualIntensity = intensity
+        _videoHdrState.value = videoHdrEngine.currentState
+        if (currentMode == CameraMode.VIDEO) {
+            updatePreviewSettings()
         }
     }
 
@@ -1226,7 +1286,7 @@ class Camera2Engine(private val context: Context) {
                                 }
 
                                 // Front camera viewfinder WYSIWYG mirroring preservation
-                                if (isFrontFacing) {
+                                if (isFrontFacing && saveSelfieAsPreviewed) {
                                     matrix.postScale(-1f, 1f)
                                 }
 
@@ -1462,6 +1522,56 @@ class Camera2Engine(private val context: Context) {
         val bytes = ByteArray(buffer.remaining())
         buffer.get(bytes)
 
+        val activeLens = _selectedLens.value
+        val isFrontFacing = activeLens?.facing == CameraCharacteristics.LENS_FACING_FRONT
+
+        val finalBytes = if (isFrontFacing && saveSelfieAsPreviewed) {
+            try {
+                val rawBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (rawBitmap != null) {
+                    val exif = try {
+                        android.media.ExifInterface(java.io.ByteArrayInputStream(bytes))
+                    } catch (e: Exception) { null }
+                    val exifOrientation = exif?.getAttributeInt(
+                        android.media.ExifInterface.TAG_ORIENTATION,
+                        android.media.ExifInterface.ORIENTATION_UNDEFINED
+                    ) ?: android.media.ExifInterface.ORIENTATION_UNDEFINED
+
+                    val matrix = Matrix()
+                    when (exifOrientation) {
+                        android.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                        android.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                        android.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                        else -> {
+                            if (rawBitmap.width > rawBitmap.height) {
+                                matrix.postRotate(270f)
+                            }
+                        }
+                    }
+                    // Mirror horizontally to save selfie exactly as previewed in viewfinder
+                    matrix.postScale(-1f, 1f)
+
+                    val mirroredBitmap = Bitmap.createBitmap(
+                        rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true
+                    )
+                    if (mirroredBitmap != rawBitmap) {
+                        rawBitmap.recycle()
+                    }
+                    val stream = java.io.ByteArrayOutputStream()
+                    mirroredBitmap.compress(Bitmap.CompressFormat.JPEG, 98, stream)
+                    mirroredBitmap.recycle()
+                    stream.toByteArray()
+                } else {
+                    bytes
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Failed to mirror selfie JPEG, falling back to original", e)
+                bytes
+            }
+        } else {
+            bytes
+        }
+
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val fileName = "IMG_$timeStamp.jpg"
 
@@ -1481,7 +1591,22 @@ class Camera2Engine(private val context: Context) {
 
         try {
             context.contentResolver.openOutputStream(uri)?.use { out ->
-                out.write(bytes)
+                out.write(finalBytes)
+            }
+
+            if (isFrontFacing && saveSelfieAsPreviewed) {
+                try {
+                    context.contentResolver.openFileDescriptor(uri, "rw")?.use { pfd ->
+                        val outExif = android.media.ExifInterface(pfd.fileDescriptor)
+                        outExif.setAttribute(
+                            android.media.ExifInterface.TAG_ORIENTATION,
+                            android.media.ExifInterface.ORIENTATION_NORMAL.toString()
+                        )
+                        outExif.saveAttributes()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to write EXIF orientation on mirrored selfie", e)
+                }
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
