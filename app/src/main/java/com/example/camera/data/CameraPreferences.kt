@@ -41,6 +41,14 @@ class CameraPreferences(context: Context) {
         private const val KEY_SAVE_SELFIE_AS_PREVIEWED = "pref_save_selfie_as_previewed"
         private const val KEY_VIDEO_HDR_MODE = "pref_video_hdr_mode"
         private const val KEY_VIDEO_HDR_INTENSITY = "pref_video_hdr_intensity"
+        private const val KEY_VIDEO_HDR_SHADOWS = "pref_video_hdr_shadows"
+        private const val KEY_VIDEO_HDR_HIGHLIGHTS = "pref_video_hdr_highlights"
+        private const val KEY_VIDEO_HDR_CONTRAST = "pref_video_hdr_contrast"
+        private const val KEY_VIDEO_HDR_EXPOSURE = "pref_video_hdr_exposure"
+        private const val KEY_VIDEO_HDR_BLACK_LEVEL = "pref_video_hdr_black_level"
+        private const val KEY_VIDEO_HDR_MIDTONES = "pref_video_hdr_midtones"
+        private const val KEY_VIDEO_HDR_SATURATION = "pref_video_hdr_saturation"
+        private const val KEY_VIEWFINDER_RESOLUTION = "pref_viewfinder_resolution"
     }
 
     var cameraMode: CameraMode
@@ -150,4 +158,40 @@ class CameraPreferences(context: Context) {
     var videoHdrManualIntensity: Int
         get() = prefs.getInt(KEY_VIDEO_HDR_INTENSITY, 50)
         set(value) = prefs.edit().putInt(KEY_VIDEO_HDR_INTENSITY, value.coerceIn(0, 100)).apply()
+
+    var videoHdrManualShadows: Int
+        get() = prefs.getInt(KEY_VIDEO_HDR_SHADOWS, 50)
+        set(value) = prefs.edit().putInt(KEY_VIDEO_HDR_SHADOWS, value.coerceIn(0, 100)).apply()
+
+    var videoHdrManualHighlights: Int
+        get() = prefs.getInt(KEY_VIDEO_HDR_HIGHLIGHTS, 50)
+        set(value) = prefs.edit().putInt(KEY_VIDEO_HDR_HIGHLIGHTS, value.coerceIn(0, 100)).apply()
+
+    var videoHdrManualContrast: Int
+        get() = prefs.getInt(KEY_VIDEO_HDR_CONTRAST, 50)
+        set(value) = prefs.edit().putInt(KEY_VIDEO_HDR_CONTRAST, value.coerceIn(0, 100)).apply()
+
+    var videoHdrManualExposure: Int
+        get() = prefs.getInt(KEY_VIDEO_HDR_EXPOSURE, 50)
+        set(value) = prefs.edit().putInt(KEY_VIDEO_HDR_EXPOSURE, value.coerceIn(0, 100)).apply()
+
+    var videoHdrManualBlackLevel: Int
+        get() = prefs.getInt(KEY_VIDEO_HDR_BLACK_LEVEL, 50)
+        set(value) = prefs.edit().putInt(KEY_VIDEO_HDR_BLACK_LEVEL, value.coerceIn(0, 100)).apply()
+
+    var videoHdrManualMidtones: Int
+        get() = prefs.getInt(KEY_VIDEO_HDR_MIDTONES, 50)
+        set(value) = prefs.edit().putInt(KEY_VIDEO_HDR_MIDTONES, value.coerceIn(0, 100)).apply()
+
+    var videoHdrManualSaturation: Int
+        get() = prefs.getInt(KEY_VIDEO_HDR_SATURATION, 50)
+        set(value) = prefs.edit().putInt(KEY_VIDEO_HDR_SATURATION, value.coerceIn(0, 100)).apply()
+
+    var viewfinderResolution: com.example.camera.model.ViewfinderResolution
+        get() {
+            val name = prefs.getString(KEY_VIEWFINDER_RESOLUTION, com.example.camera.model.ViewfinderResolution.NORMAL.name)
+                ?: com.example.camera.model.ViewfinderResolution.NORMAL.name
+            return try { com.example.camera.model.ViewfinderResolution.valueOf(name) } catch (e: Exception) { com.example.camera.model.ViewfinderResolution.NORMAL }
+        }
+        set(value) = prefs.edit().putString(KEY_VIEWFINDER_RESOLUTION, value.name).apply()
 }

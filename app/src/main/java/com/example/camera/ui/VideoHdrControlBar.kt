@@ -12,13 +12,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.HdrAuto
 import androidx.compose.material.icons.filled.HdrOff
 import androidx.compose.material.icons.filled.HdrOn
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,27 +40,39 @@ fun VideoHdrControlBar(
     hdrState: VideoHdrState,
     onModeChanged: (VideoHdrMode) -> Unit,
     onIntensityChanged: (Int) -> Unit,
+    onShadowsChanged: (Int) -> Unit = {},
+    onHighlightsChanged: (Int) -> Unit = {},
+    onContrastChanged: (Int) -> Unit = {},
+    onExposureChanged: (Int) -> Unit = {},
+    onBlackLevelChanged: (Int) -> Unit = {},
+    onMidtonesChanged: (Int) -> Unit = {},
+    onSaturationChanged: (Int) -> Unit = {},
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color.Black.copy(alpha = 0.90f),
-                        Color.Black.copy(alpha = 0.97f)
+                        Color(0xFF131722).copy(alpha = 0.76f),
+                        Color(0xFF090B10).copy(alpha = 0.90f)
                     )
                 )
             )
             .border(
                 width = 1.dp,
-                color = Color.White.copy(alpha = 0.14f),
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.30f),
+                        Color.White.copy(alpha = 0.08f)
+                    )
+                ),
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
             )
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
             .testTag("video_hdr_control_bar")
     ) {
         // 1. Header: Title, Live Status Badge, and Close Button
@@ -266,40 +279,23 @@ fun VideoHdrControlBar(
             }
 
             VideoHdrMode.MANUAL -> {
-                // Manual Intensity Slider (0 to 100)
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "HDR Dynamic Range Intensity",
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "${hdrState.manualIntensity}%",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    Slider(
+                // Scrollable container for full independent manual controls
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 280.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // 1. Master HDR Dynamic Range Intensity Slider (0 to 100)
+                    HdrControlSlider(
+                        label = "HDR Master Intensity",
+                        displayValue = "${hdrState.manualIntensity}%",
                         value = hdrState.manualIntensity.toFloat(),
-                        onValueChange = { onIntensityChanged(it.toInt()) },
                         valueRange = 0f..100f,
                         steps = 99,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("hdr_intensity_slider"),
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.2f)
-                        )
+                        testTag = "hdr_intensity_slider",
+                        onValueChange = { onIntensityChanged(it.toInt()) }
                     )
 
                     // Quick presets (25%, 50%, 75%, 100%)
@@ -336,17 +332,168 @@ fun VideoHdrControlBar(
                         }
                     }
 
-                    // Explanatory note
-                    Text(
-                        text = "Dynamic range processing expands shadows & preserves highlights. Noise reduction remains independently adaptive to actual scene ISO.",
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 10.sp,
-                        lineHeight = 13.sp,
-                        modifier = Modifier.padding(top = 2.dp)
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 0.5.dp)
+
+                    // 2. Shadows Slider (0 to 100)
+                    HdrControlSlider(
+                        label = "Shadows (Lift/Compress)",
+                        displayValue = "${hdrState.manualShadows}%",
+                        value = hdrState.manualShadows.toFloat(),
+                        valueRange = 0f..100f,
+                        steps = 99,
+                        testTag = "hdr_shadows_slider",
+                        onValueChange = { onShadowsChanged(it.toInt()) }
                     )
+
+                    // 3. Highlights Slider (0 to 100)
+                    HdrControlSlider(
+                        label = "Highlights (Protection/Roll-off)",
+                        displayValue = "${hdrState.manualHighlights}%",
+                        value = hdrState.manualHighlights.toFloat(),
+                        valueRange = 0f..100f,
+                        steps = 99,
+                        testTag = "hdr_highlights_slider",
+                        onValueChange = { onHighlightsChanged(it.toInt()) }
+                    )
+
+                    // 4. Contrast Slider (-50 to +50)
+                    HdrControlSlider(
+                        label = "Contrast",
+                        displayValue = if (hdrState.manualContrast >= 0) "+${hdrState.manualContrast}" else "${hdrState.manualContrast}",
+                        value = hdrState.manualContrast.toFloat(),
+                        valueRange = -50f..50f,
+                        steps = 99,
+                        testTag = "hdr_contrast_slider",
+                        onValueChange = { onContrastChanged(it.toInt()) }
+                    )
+
+                    // 5. Exposure Slider (-50 to +50)
+                    HdrControlSlider(
+                        label = "Exposure Bias",
+                        displayValue = if (hdrState.manualExposure >= 0) "+${hdrState.manualExposure}" else "${hdrState.manualExposure}",
+                        value = hdrState.manualExposure.toFloat(),
+                        valueRange = -50f..50f,
+                        steps = 99,
+                        testTag = "hdr_exposure_slider",
+                        onValueChange = { onExposureChanged(it.toInt()) }
+                    )
+
+                    // 6. Black Level Slider (-50 to +50)
+                    HdrControlSlider(
+                        label = "Black Level (Floor/Crush)",
+                        displayValue = if (hdrState.manualBlackLevel >= 0) "+${hdrState.manualBlackLevel}" else "${hdrState.manualBlackLevel}",
+                        value = hdrState.manualBlackLevel.toFloat(),
+                        valueRange = -50f..50f,
+                        steps = 99,
+                        testTag = "hdr_black_level_slider",
+                        onValueChange = { onBlackLevelChanged(it.toInt()) }
+                    )
+
+                    // 7. Midtones Slider (-50 to +50)
+                    HdrControlSlider(
+                        label = "Midtones (Gamma/Body)",
+                        displayValue = if (hdrState.manualMidtones >= 0) "+${hdrState.manualMidtones}" else "${hdrState.manualMidtones}",
+                        value = hdrState.manualMidtones.toFloat(),
+                        valueRange = -50f..50f,
+                        steps = 99,
+                        testTag = "hdr_midtones_slider",
+                        onValueChange = { onMidtonesChanged(it.toInt()) }
+                    )
+
+                    // 8. Saturation Slider (0 to 100, default 50)
+                    HdrControlSlider(
+                        label = "Saturation (Vibrance)",
+                        displayValue = "${hdrState.manualSaturation}%",
+                        value = hdrState.manualSaturation.toFloat(),
+                        valueRange = 0f..100f,
+                        steps = 99,
+                        testTag = "hdr_saturation_slider",
+                        onValueChange = { onSaturationChanged(it.toInt()) }
+                    )
+
+                    // Reset Button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            onClick = {
+                                onIntensityChanged(50)
+                                onShadowsChanged(50)
+                                onHighlightsChanged(50)
+                                onContrastChanged(0)
+                                onExposureChanged(0)
+                                onBlackLevelChanged(0)
+                                onMidtonesChanged(0)
+                                onSaturationChanged(50)
+                            },
+                            modifier = Modifier.testTag("hdr_reset_manual_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.RestartAlt,
+                                contentDescription = "Reset",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Reset to Defaults",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HdrControlSlider(
+    label: String,
+    displayValue: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    testTag: String,
+    onValueChange: (Float) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                color = Color.White.copy(alpha = 0.85f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = displayValue,
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            steps = steps,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(32.dp)
+                .testTag(testTag),
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+            )
+        )
     }
 }
 
@@ -388,18 +535,22 @@ fun VideoHdrFloatingButton(
     Surface(
         onClick = onClick,
         modifier = modifier.testTag("hdr_floating_open_button"),
-        shape = RoundedCornerShape(20.dp),
-        color = Color.Black.copy(alpha = 0.70f),
-        border = borderStroke(
+        shape = RoundedCornerShape(22.dp),
+        color = Color(0xFF141722).copy(alpha = 0.72f),
+        border = androidx.compose.foundation.BorderStroke(
             width = 1.dp,
-            color = if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-            else Color.White.copy(alpha = 0.3f)
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.35f),
+                    Color.White.copy(alpha = 0.10f)
+                )
+            )
         )
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             Icon(
                 imageVector = if (hdrState.isHdrActive) Icons.Default.HdrOn else Icons.Default.HdrOff,
@@ -423,4 +574,3 @@ fun VideoHdrFloatingButton(
 
 private fun borderStroke(width: androidx.compose.ui.unit.Dp, color: Color) =
     androidx.compose.foundation.BorderStroke(width, color)
-

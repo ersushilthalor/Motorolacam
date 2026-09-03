@@ -58,10 +58,56 @@ class VideoHdrEngine {
             updateState()
         }
 
+    var manualShadows: Int = 50 // 0 to 100
+        set(value) {
+            field = value.coerceIn(0, 100)
+            updateState()
+        }
+
+    var manualHighlights: Int = 50 // 0 to 100
+        set(value) {
+            field = value.coerceIn(0, 100)
+            updateState()
+        }
+
+    var manualContrast: Int = 50 // 0 to 100
+        set(value) {
+            field = value.coerceIn(0, 100)
+            updateState()
+        }
+
+    var manualExposure: Int = 50 // 0 to 100
+        set(value) {
+            field = value.coerceIn(0, 100)
+            updateState()
+        }
+
+    var manualBlackLevel: Int = 50 // 0 to 100
+        set(value) {
+            field = value.coerceIn(0, 100)
+            updateState()
+        }
+
+    var manualMidtones: Int = 50 // 0 to 100
+        set(value) {
+            field = value.coerceIn(0, 100)
+            updateState()
+        }
+
+    var manualSaturation: Int = 50 // 0 to 100
+        set(value) {
+            field = value.coerceIn(0, 100)
+            updateState()
+        }
+
     // Current smoothed parameters (for anti-flicker stability)
     private var smoothedShadowLift: Float = 0.35f
     private var smoothedHighlightProtect: Float = 0.40f
     private var smoothedContrast: Float = 1.10f
+    private var smoothedExposureBias: Float = 0.0f
+    private var smoothedBlackLevel: Float = 0.0f
+    private var smoothedMidtones: Float = 0.0f
+    private var smoothedSaturation: Float = 1.0f
     private var smoothedNoiseReduction: Float = 0.30f
     private var smoothedEv: Float = 10f
     private var smoothedIso: Float = 200f
@@ -179,10 +225,18 @@ class VideoHdrEngine {
         val targetShadowLift: Float
         val targetHighlightProtect: Float
         val targetContrast: Float
+        val targetExposureBias: Float
+        val targetBlackLevel: Float
+        val targetMidtones: Float
+        val targetSaturation: Float
         val targetNoiseReduction: Float
 
         when (mode) {
             VideoHdrMode.AUTO -> {
+                targetExposureBias = 0.0f
+                targetBlackLevel = 0.0f
+                targetMidtones = 0.0f
+                targetSaturation = 1.0f
                 // Determine parameters according to lighting condition and ISO
                 when {
                     // Dark / Low-Light / High-ISO (EV < 4 or ISO > 800)
@@ -211,11 +265,25 @@ class VideoHdrEngine {
                 }
             }
             VideoHdrMode.MANUAL -> {
-                // User-controlled dynamic range intensity (0 to 100)
-                val normIntensity = manualIntensity / 100f
-                targetShadowLift = normIntensity * 0.75f
-                targetHighlightProtect = normIntensity * 0.65f
-                targetContrast = 1.0f + (normIntensity * 0.25f)
+                // Master intensity modifier (0 to 100)
+                val master = manualIntensity / 100f
+                // Individual controls normalized from 0..100 (50 = baseline neutral)
+                val shadowFactor = (manualShadows / 50f) // 0.0 .. 1.0 (at 50) .. 2.0 (at 100)
+                val highlightFactor = (manualHighlights / 50f) // 0.0 .. 1.0 .. 2.0
+                val contrastDelta = (manualContrast - 50) / 50f // -1.0 .. 0.0 .. +1.0
+                val expDelta = (manualExposure - 50) / 50f // -1.0 .. 0.0 .. +1.0
+                val blackDelta = (manualBlackLevel - 50) / 50f // -1.0 .. 0.0 .. +1.0
+                val midDelta = (manualMidtones - 50) / 50f // -1.0 .. 0.0 .. +1.0
+                val satFactor = (manualSaturation / 50f) // 0.0 (monochrome) .. 1.0 (normal) .. 2.0 (vibrant)
+
+                targetShadowLift = (master * 0.70f * shadowFactor).coerceIn(0f, 1.2f)
+                targetHighlightProtect = (master * 0.60f * highlightFactor).coerceIn(0f, 1.2f)
+                targetContrast = (1.0f + (master * 0.25f) + (contrastDelta * 0.35f)).coerceIn(0.7f, 1.6f)
+                targetExposureBias = expDelta * 0.30f // -0.30 .. +0.30
+                targetBlackLevel = blackDelta * 0.12f // -0.12 (lift black) .. +0.12 (deep black)
+                targetMidtones = midDelta * 0.25f // -0.25 .. +0.25
+                targetSaturation = satFactor.coerceIn(0f, 2.0f)
+
                 // Noise reduction remains independently adaptive to actual ISO levels
                 val isoNoiseBase = ((smoothedIso - 200f) / 3000f).coerceIn(0.1f, 1.0f)
                 targetNoiseReduction = isoNoiseBase
@@ -224,6 +292,10 @@ class VideoHdrEngine {
                 targetShadowLift = 0f
                 targetHighlightProtect = 0f
                 targetContrast = 1.0f
+                targetExposureBias = 0f
+                targetBlackLevel = 0f
+                targetMidtones = 0f
+                targetSaturation = 1.0f
                 targetNoiseReduction = 0f
             }
         }
@@ -232,6 +304,10 @@ class VideoHdrEngine {
         smoothedShadowLift = smoothedShadowLift * (1f - alpha) + targetShadowLift * alpha
         smoothedHighlightProtect = smoothedHighlightProtect * (1f - alpha) + targetHighlightProtect * alpha
         smoothedContrast = smoothedContrast * (1f - alpha) + targetContrast * alpha
+        smoothedExposureBias = smoothedExposureBias * (1f - alpha) + targetExposureBias * alpha
+        smoothedBlackLevel = smoothedBlackLevel * (1f - alpha) + targetBlackLevel * alpha
+        smoothedMidtones = smoothedMidtones * (1f - alpha) + targetMidtones * alpha
+        smoothedSaturation = smoothedSaturation * (1f - alpha) + targetSaturation * alpha
         smoothedNoiseReduction = smoothedNoiseReduction * (1f - alpha) + targetNoiseReduction * alpha
 
         updateState()
@@ -249,12 +325,19 @@ class VideoHdrEngine {
                 }
                 "HDR Auto · $condition (Shadow +${(smoothedShadowLift * 100).toInt()}%)"
             }
-            VideoHdrMode.MANUAL -> "HDR Manual ($manualIntensity%) · Shadow +${(smoothedShadowLift * 100).toInt()}%"
+            VideoHdrMode.MANUAL -> "HDR Manual ($manualIntensity%) · Shd:${manualShadows}% Hlt:${manualHighlights}% Ctr:${manualContrast}% Sat:${manualSaturation}%"
         }
 
         currentState = VideoHdrState(
             mode = mode,
             manualIntensity = manualIntensity,
+            manualShadows = manualShadows,
+            manualHighlights = manualHighlights,
+            manualContrast = manualContrast,
+            manualExposure = manualExposure,
+            manualBlackLevel = manualBlackLevel,
+            manualMidtones = manualMidtones,
+            manualSaturation = manualSaturation,
             isHdrActive = mode != VideoHdrMode.OFF,
             currentStrength = if (mode == VideoHdrMode.OFF) 0f else if (mode == VideoHdrMode.MANUAL) manualIntensity / 100f else smoothedShadowLift,
             shadowLift = if (mode == VideoHdrMode.OFF) 0f else smoothedShadowLift,
@@ -297,13 +380,17 @@ class VideoHdrEngine {
             val tonemapCurve = generateHdrTonemapCurve(
                 shadowLift = smoothedShadowLift,
                 highlightProtect = smoothedHighlightProtect,
-                contrast = smoothedContrast
+                contrast = smoothedContrast,
+                exposureBias = smoothedExposureBias,
+                blackLevel = smoothedBlackLevel,
+                midtones = smoothedMidtones,
+                saturation = smoothedSaturation
             )
             builder.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_CONTRAST_CURVE)
             builder.set(CaptureRequest.TONEMAP_CURVE, tonemapCurve)
         } else if (supportsGammaValue) {
             // Adaptive gamma curve fallback: lifting shadows naturally without washing out blacks
-            val adaptiveGamma = (2.2f - (smoothedShadowLift * 0.6f)).coerceIn(1.6f, 2.4f)
+            val adaptiveGamma = (2.2f - (smoothedShadowLift * 0.6f) - (smoothedMidtones * 0.4f)).coerceIn(1.4f, 2.6f)
             builder.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_GAMMA_VALUE)
             builder.set(CaptureRequest.TONEMAP_GAMMA, adaptiveGamma)
         } else {
@@ -337,13 +424,17 @@ class VideoHdrEngine {
      * Synthesizes a high-precision 64-point S-curve tonemapping curve for Camera2.
      * Monotonically smooth:
      * - Deep shadows lifted naturally
-     * - Midtones contrast preserved
      * - Highlights softly compressed to eliminate blown-out clipping
+     * - Midtones, black level, exposure bias, and color channel scaling applied cleanly
      */
     private fun generateHdrTonemapCurve(
         shadowLift: Float,
         highlightProtect: Float,
-        contrast: Float
+        contrast: Float,
+        exposureBias: Float = 0f,
+        blackLevel: Float = 0f,
+        midtones: Float = 0f,
+        saturation: Float = 1f
     ): TonemapCurve {
         val points = CURVE_POINTS
         var prevOut = 0f
@@ -351,33 +442,47 @@ class VideoHdrEngine {
         for (i in 0 until points) {
             val inVal = i.toFloat() / (points - 1).toFloat()
 
-            // S-curve synthesis:
-            // 1. Shadow lifting function (power-bezier taper)
-            val shadowBoost = shadowLift * inVal * (1f - inVal).pow(2f) * 2.0f
-            val baseVal = (inVal + shadowBoost).coerceIn(0f, 1f)
+            // 1. Black level & Exposure offset
+            val shiftedIn = (inVal * (1f + exposureBias) - (blackLevel * 0.15f)).coerceIn(0f, 1f)
 
-            // 2. Midtone contrast response (filmic power curve)
-            val p = contrast.coerceIn(0.9f, 1.4f)
-            val vPow = baseVal.pow(p)
-            val midVal = if (baseVal <= 0f) 0f else vPow / (vPow + (1f - baseVal).pow(p))
+            // 2. Shadow lifting function (power-bezier taper)
+            val shadowBoost = shadowLift * shiftedIn * (1f - shiftedIn).pow(2f) * 2.0f
+            val baseVal = (shiftedIn + shadowBoost).coerceIn(0f, 1f)
 
-            // 3. Highlight compression shoulder (protect specular highlights from clipping)
+            // 3. Midtone adjustment + Contrast response
+            // Midtone positive = lifts midtones; negative = darkens midtones
+            val midShift = midtones * 4f * baseVal * (1f - baseVal)
+            val midAdjusted = (baseVal + midShift).coerceIn(0f, 1f)
+
+            val p = contrast.coerceIn(0.7f, 1.8f)
+            val vPow = midAdjusted.pow(p)
+            val contrastVal = if (midAdjusted <= 0f) 0f else vPow / (vPow + (1f - midAdjusted).pow(p))
+
+            // 4. Highlight compression shoulder (protect specular highlights from clipping)
             val shoulder = 1f + (highlightProtect * 0.75f)
-            val finalVal = (1f - (1f - midVal).pow(shoulder)).coerceIn(0f, 1f)
+            val finalVal = (1f - (1f - contrastVal).pow(shoulder)).coerceIn(0f, 1f)
 
             // Ensure strictly monotonic non-decreasing output
             val monotonicOut = max(prevOut, finalVal).coerceIn(0f, 1f)
             prevOut = monotonicOut
 
+            // Saturation modulation via color-channel divergence around luminance
+            // Red and Blue slightly diverge from Green when saturation is boosted,
+            // or converge to Green when desaturated.
+            val satMod = (saturation - 1f) * 0.08f
+            val rOut = (monotonicOut + satMod * (monotonicOut - 0.5f)).coerceIn(0f, 1f)
+            val gOut = monotonicOut
+            val bOut = (monotonicOut - (satMod * 0.5f) * (monotonicOut - 0.5f)).coerceIn(0f, 1f)
+
             val idx = i * 2
             curveRed[idx] = inVal
-            curveRed[idx + 1] = monotonicOut
+            curveRed[idx + 1] = rOut
 
             curveGreen[idx] = inVal
-            curveGreen[idx + 1] = monotonicOut
+            curveGreen[idx + 1] = gOut
 
             curveBlue[idx] = inVal
-            curveBlue[idx + 1] = monotonicOut
+            curveBlue[idx + 1] = bOut
         }
 
         return TonemapCurve(curveRed, curveGreen, curveBlue)

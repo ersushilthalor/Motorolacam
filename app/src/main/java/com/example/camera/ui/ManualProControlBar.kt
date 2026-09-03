@@ -67,14 +67,24 @@ fun ManualProControlBar(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .background(
-                    color = Color.Black.copy(alpha = 0.88f),
-                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF131722).copy(alpha = 0.76f),
+                            Color(0xFF090B10).copy(alpha = 0.90f)
+                        )
+                    )
                 )
                 .border(
                     width = 1.dp,
-                    color = Color.White.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.30f),
+                            Color.White.copy(alpha = 0.08f)
+                        )
+                    ),
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
                 )
                 .padding(vertical = 12.dp)
                 .testTag("manual_pro_bar")

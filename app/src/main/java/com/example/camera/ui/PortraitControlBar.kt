@@ -49,21 +49,26 @@ fun PortraitControlBar(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color.Black.copy(alpha = 0.88f),
-                        Color.Black.copy(alpha = 0.96f)
+                        Color(0xFF131722).copy(alpha = 0.76f),
+                        Color(0xFF090B10).copy(alpha = 0.90f)
                     )
                 )
             )
             .border(
                 width = 1.dp,
-                color = Color.White.copy(alpha = 0.12f),
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.30f),
+                        Color.White.copy(alpha = 0.08f)
+                    )
+                ),
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
             )
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         // Top Header with Title and Clear Close (X) Button
         Row(

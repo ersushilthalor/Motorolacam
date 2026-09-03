@@ -40,10 +40,12 @@ fun SettingsDrawer(
     isRawEnabled: Boolean,
     saveSelfieAsPreviewed: Boolean = true,
     hdrState: com.example.camera.model.VideoHdrState = com.example.camera.model.VideoHdrState(),
+    viewfinderResolution: ViewfinderResolution = ViewfinderResolution.NORMAL,
     onLensSelected: (LensInfo) -> Unit,
     onForceDeepScan: () -> Unit,
     onPhotoResolutionSelected: (CameraResolution) -> Unit,
     onVideoResolutionSelected: (CameraResolution) -> Unit,
+    onViewfinderResolutionSelected: (ViewfinderResolution) -> Unit = {},
     onVideoFpsSelected: (Int) -> Unit,
     onVideoBitrateSelected: (VideoBitrateOption) -> Unit,
     onStabilizationToggle: (Boolean) -> Unit,
@@ -226,13 +228,63 @@ fun SettingsDrawer(
 
             // Section: Selfie & Mirroring Preferences
             item {
-                SettingsSectionHeader(title = "Selfie & Capture")
+                SettingsSectionHeader(title = "Selfie & Orientation")
                 SettingsToggleRow(
-                    title = "Save selfie as previewed (without flipping)",
-                    subtitle = "Save front-camera photos exactly as seen in the viewfinder",
+                    title = "Selfie as Previewed Without Flipping",
+                    subtitle = "Saves front camera photos & videos with exact preview orientation without unwanted flipping",
                     isChecked = saveSelfieAsPreviewed,
                     onToggle = { onSaveSelfieAsPreviewedToggle(!saveSelfieAsPreviewed) }
                 )
+            }
+
+            // Section: Viewfinder Preview Resolution
+            item {
+                SettingsSectionHeader(title = "Viewfinder Resolution")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ViewfinderResolution.entries.forEach { resOption ->
+                        val isSelected = viewfinderResolution == resOption
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) Color(0xFFFFD54F).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSelected) Color(0xFFFFD54F) else Color.Transparent
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { onViewfinderResolutionSelected(resOption) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = resOption.label,
+                                        color = if (isSelected) Color(0xFFFFD54F) else Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = resOption.description,
+                                        color = Color.White.copy(alpha = 0.6f),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Selected",
+                                        tint = Color(0xFFFFD54F),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // Section: Video Configuration

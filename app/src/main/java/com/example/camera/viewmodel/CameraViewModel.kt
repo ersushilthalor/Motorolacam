@@ -153,6 +153,9 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val _videoFps = MutableStateFlow(preferences.videoFps)
     val videoFps: StateFlow<Int> = _videoFps.asStateFlow()
 
+    private val _viewfinderResolution = MutableStateFlow(preferences.viewfinderResolution)
+    val viewfinderResolution: StateFlow<ViewfinderResolution> = _viewfinderResolution.asStateFlow()
+
     private val _colorProfile = MutableStateFlow(preferences.colorProfile)
     val colorProfile: StateFlow<ColorProfile> = _colorProfile.asStateFlow()
 
@@ -193,6 +196,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         engine.whiteBalanceMode = preferences.whiteBalance
         engine.focusMode = preferences.focusMode
         engine.saveSelfieAsPreviewed = preferences.saveSelfieAsPreviewed
+        engine.viewfinderResolution = preferences.viewfinderResolution
         engine.setVideoHdrMode(preferences.videoHdrMode)
         engine.setVideoHdrManualIntensity(preferences.videoHdrManualIntensity)
         engine.setMode(preferences.cameraMode)
@@ -268,6 +272,41 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     fun setVideoHdrManualIntensity(intensity: Int) {
         preferences.videoHdrManualIntensity = intensity
         engine.setVideoHdrManualIntensity(intensity)
+    }
+
+    fun setVideoHdrManualShadows(value: Int) {
+        preferences.videoHdrManualShadows = value
+        engine.setVideoHdrManualShadows(value)
+    }
+
+    fun setVideoHdrManualHighlights(value: Int) {
+        preferences.videoHdrManualHighlights = value
+        engine.setVideoHdrManualHighlights(value)
+    }
+
+    fun setVideoHdrManualContrast(value: Int) {
+        preferences.videoHdrManualContrast = value
+        engine.setVideoHdrManualContrast(value)
+    }
+
+    fun setVideoHdrManualExposure(value: Int) {
+        preferences.videoHdrManualExposure = value
+        engine.setVideoHdrManualExposure(value)
+    }
+
+    fun setVideoHdrManualBlackLevel(value: Int) {
+        preferences.videoHdrManualBlackLevel = value
+        engine.setVideoHdrManualBlackLevel(value)
+    }
+
+    fun setVideoHdrManualMidtones(value: Int) {
+        preferences.videoHdrManualMidtones = value
+        engine.setVideoHdrManualMidtones(value)
+    }
+
+    fun setVideoHdrManualSaturation(value: Int) {
+        preferences.videoHdrManualSaturation = value
+        engine.setVideoHdrManualSaturation(value)
     }
 
     fun setVideoHdrPanelOpen(isOpen: Boolean) {
@@ -511,6 +550,13 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         preferences.videoWidth = res.width
         preferences.videoHeight = res.height
         showToast("Video Resolution: ${res.displayLabel}")
+    }
+
+    fun setViewfinderResolution(res: ViewfinderResolution) {
+        _viewfinderResolution.value = res
+        preferences.viewfinderResolution = res
+        engine.setViewfinderResolution(res)
+        showToast("Viewfinder: ${res.label}")
     }
 
     fun setSettingsOpen(open: Boolean) {

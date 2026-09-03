@@ -126,6 +126,14 @@ class Camera2Engine(private val context: Context) {
     var isAudioEnabled: Boolean = true
     var currentZoom: Float = 1.0f
     var saveSelfieAsPreviewed: Boolean = true
+    var viewfinderResolution: ViewfinderResolution = ViewfinderResolution.NORMAL
+
+    // Camera Session Concurrency & State Guard
+    private val cameraLifecycleLock = Any()
+    @Volatile
+    private var isStartingCamera = false
+    @Volatile
+    private var isClosingCamera = false
 
     val videoHdrEngine = VideoHdrEngine()
     private val _videoHdrState = MutableStateFlow(videoHdrEngine.currentState)
@@ -749,16 +757,20 @@ class Camera2Engine(private val context: Context) {
             val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return
 
-            // Pick optimal preview size matching selected aspect ratio
+            // Pick optimal preview size matching selected aspect ratio and viewfinderResolution level
             val targetRatio = _previewAspectRatio.value
             val previewSizes = map.getOutputSizes(SurfaceTexture::class.java) ?: emptyArray()
 
-            val optimalPreviewSize = previewSizes
-                .filter {
-                    val r = max(it.width, it.height).toFloat() / min(it.width, it.height).toFloat()
-                    kotlin.math.abs(r - targetRatio) < 0.08f
-                }
+            val maxDim = viewfinderResolution.maxDimension
+            val matchingRatioSizes = previewSizes.filter {
+                val r = max(it.width, it.height).toFloat() / min(it.width, it.height).toFloat()
+                kotlin.math.abs(r - targetRatio) < 0.08f
+            }
+
+            val optimalPreviewSize = matchingRatioSizes
+                .filter { max(it.width, it.height) <= maxDim }
                 .maxByOrNull { it.width * it.height }
+                ?: matchingRatioSizes.minByOrNull { max(it.width, it.height) }
                 ?: previewSizes.firstOrNull { it.width <= 1920 && it.height <= 1080 }
                 ?: previewSizes.firstOrNull()
                 ?: Size(1920, 1080)
@@ -769,13 +781,24 @@ class Camera2Engine(private val context: Context) {
             // Setup ImageReader for Photo mode
             setupImageReaders(lens.cameraId)
 
+            synchronized(cameraLifecycleLock) {
+                if (isStartingCamera) return
+                isStartingCamera = true
+            }
+
             cameraManager.openCamera(lens.cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
+                    synchronized(cameraLifecycleLock) {
+                        isStartingCamera = false
+                    }
                     cameraDevice = camera
                     createCameraCaptureSession()
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
+                    synchronized(cameraLifecycleLock) {
+                        isStartingCamera = false
+                    }
                     camera.close()
                     cameraDevice = null
                     _isCameraReady.value = false
@@ -783,6 +806,9 @@ class Camera2Engine(private val context: Context) {
 
                 override fun onError(camera: CameraDevice, error: Int) {
                     Log.e(TAG, "Camera open error: $error")
+                    synchronized(cameraLifecycleLock) {
+                        isStartingCamera = false
+                    }
                     camera.close()
                     cameraDevice = null
                     _isCameraReady.value = false
@@ -790,6 +816,9 @@ class Camera2Engine(private val context: Context) {
             }, backgroundHandler)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start camera", e)
+            synchronized(cameraLifecycleLock) {
+                isStartingCamera = false
+            }
             _isCameraReady.value = false
         }
     }
@@ -1083,6 +1112,62 @@ class Camera2Engine(private val context: Context) {
         }
     }
 
+    fun setVideoHdrManualShadows(value: Int) {
+        videoHdrEngine.manualShadows = value
+        _videoHdrState.value = videoHdrEngine.currentState
+        if (currentMode == CameraMode.VIDEO) {
+            updatePreviewSettings()
+        }
+    }
+
+    fun setVideoHdrManualHighlights(value: Int) {
+        videoHdrEngine.manualHighlights = value
+        _videoHdrState.value = videoHdrEngine.currentState
+        if (currentMode == CameraMode.VIDEO) {
+            updatePreviewSettings()
+        }
+    }
+
+    fun setVideoHdrManualContrast(value: Int) {
+        videoHdrEngine.manualContrast = value
+        _videoHdrState.value = videoHdrEngine.currentState
+        if (currentMode == CameraMode.VIDEO) {
+            updatePreviewSettings()
+        }
+    }
+
+    fun setVideoHdrManualExposure(value: Int) {
+        videoHdrEngine.manualExposure = value
+        _videoHdrState.value = videoHdrEngine.currentState
+        if (currentMode == CameraMode.VIDEO) {
+            updatePreviewSettings()
+        }
+    }
+
+    fun setVideoHdrManualBlackLevel(value: Int) {
+        videoHdrEngine.manualBlackLevel = value
+        _videoHdrState.value = videoHdrEngine.currentState
+        if (currentMode == CameraMode.VIDEO) {
+            updatePreviewSettings()
+        }
+    }
+
+    fun setVideoHdrManualMidtones(value: Int) {
+        videoHdrEngine.manualMidtones = value
+        _videoHdrState.value = videoHdrEngine.currentState
+        if (currentMode == CameraMode.VIDEO) {
+            updatePreviewSettings()
+        }
+    }
+
+    fun setVideoHdrManualSaturation(value: Int) {
+        videoHdrEngine.manualSaturation = value
+        _videoHdrState.value = videoHdrEngine.currentState
+        if (currentMode == CameraMode.VIDEO) {
+            updatePreviewSettings()
+        }
+    }
+
     /**
      * Set Digital Zoom (1x to Max)
      */
@@ -1134,14 +1219,69 @@ class Camera2Engine(private val context: Context) {
         }
     }
 
+    private fun getDeviceRotationDegrees(): Int {
+        val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as? android.view.WindowManager
+        val rotation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                context.display?.rotation ?: android.view.Surface.ROTATION_0
+            } catch (e: Exception) {
+                windowManager?.defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager?.defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
+        }
+        return when (rotation) {
+            android.view.Surface.ROTATION_0 -> 0
+            android.view.Surface.ROTATION_90 -> 90
+            android.view.Surface.ROTATION_180 -> 180
+            android.view.Surface.ROTATION_270 -> 270
+            else -> 0
+        }
+    }
+
+    private fun calculateOrientation(sensorOrientation: Int, isFrontFacing: Boolean, deviceRotation: Int): Int {
+        return if (isFrontFacing) {
+            // Front sensor: (sensorOrientation + deviceRotation) % 360
+            (sensorOrientation + deviceRotation) % 360
+        } else {
+            // Back sensor: (sensorOrientation - deviceRotation + 360) % 360
+            (sensorOrientation - deviceRotation + 360) % 360
+        }
+    }
+
+    private fun getVideoOrientationHint(): Int {
+        val lens = _selectedLens.value ?: return 90
+        val isFront = lens.facing == CameraCharacteristics.LENS_FACING_FRONT
+        val sensorOrientation = try {
+            val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+            chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: (if (isFront) 270 else 90)
+        } catch (e: Exception) {
+            if (isFront) 270 else 90
+        }
+        val deviceRotation = getDeviceRotationDegrees()
+        val standardHint = calculateOrientation(sensorOrientation, isFront, deviceRotation)
+
+        // When "Save selfie as previewed without flipping" is enabled:
+        // In the viewfinder preview, front camera is mirrored horizontally (scale -1, 1).
+        // Standard video container players play according to orientation hint.
+        // For front camera in portrait (deviceRotation = 0, sensor = 270):
+        // Standard hint is 270°. Some players or sensors inverted this to 90° (upside-down by 180°).
+        // Returning standardHint properly prevents upside down playback.
+        return standardHint
+    }
+
     private fun getCaptureJpegOrientation(): Int {
         val lens = _selectedLens.value ?: return 90
-        return try {
+        val isFront = lens.facing == CameraCharacteristics.LENS_FACING_FRONT
+        val sensorOrientation = try {
             val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
-            chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+            chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: (if (isFront) 270 else 90)
         } catch (e: Exception) {
-            90
+            if (isFront) 270 else 90
         }
+        val deviceRotation = getDeviceRotationDegrees()
+        return calculateOrientation(sensorOrientation, isFront, deviceRotation)
     }
 
     /**
@@ -1408,7 +1548,9 @@ class Camera2Engine(private val context: Context) {
                     setAudioSamplingRate(48000)
                     setAudioEncodingBitRate(192000)
                 }
-                setOrientationHint(90) // Portrait orientation
+                val orientationHint = getVideoOrientationHint()
+                setOrientationHint(orientationHint)
+                Log.d(TAG, "MediaRecorder orientationHint set to $orientationHint (lens=${lens.displayName}, isFront=${lens.facing == CameraCharacteristics.LENS_FACING_FRONT})")
                 prepare()
             }
 
@@ -1694,8 +1836,21 @@ class Camera2Engine(private val context: Context) {
     }
 
     fun restartCamera() {
-        closeCamera()
-        startCamera()
+        backgroundHandler?.post {
+            synchronized(cameraLifecycleLock) {
+                closeCameraInternal()
+                startCamera()
+            }
+        } ?: run {
+            closeCamera()
+            startCamera()
+        }
+    }
+
+    fun setViewfinderResolution(resolution: ViewfinderResolution) {
+        if (viewfinderResolution == resolution) return
+        viewfinderResolution = resolution
+        restartCamera()
     }
 
     private fun closeCameraCaptureSession() {
@@ -1707,7 +1862,7 @@ class Camera2Engine(private val context: Context) {
         }
     }
 
-    fun closeCamera() {
+    private fun closeCameraInternal() {
         _isCameraReady.value = false
         closeCameraCaptureSession()
         try {
@@ -1716,10 +1871,20 @@ class Camera2Engine(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error closing camera device", e)
         }
-        imageReaderJpeg?.close()
-        imageReaderJpeg = null
-        imageReaderRaw?.close()
-        imageReaderRaw = null
+        try {
+            imageReaderJpeg?.close()
+            imageReaderJpeg = null
+            imageReaderRaw?.close()
+            imageReaderRaw = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing image readers", e)
+        }
+    }
+
+    fun closeCamera() {
+        synchronized(cameraLifecycleLock) {
+            closeCameraInternal()
+        }
     }
 
     fun release() {

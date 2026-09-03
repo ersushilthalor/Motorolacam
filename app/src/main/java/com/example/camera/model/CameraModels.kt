@@ -103,6 +103,16 @@ enum class VideoQualityOption(
         get() = CameraResolution(width, height)
 }
 
+enum class ViewfinderResolution(
+    val label: String,
+    val description: String,
+    val maxDimension: Int
+) {
+    NORMAL("Normal", "1080p (Optimized battery & latency)", 1920),
+    HIGH("High (~2K)", "1440p Quad-HD clarity", 2560),
+    MAX("Max (~4K)", "Full sensor resolution preview", 4096)
+}
+
 enum class VideoHdrMode(val label: String, val description: String) {
     OFF("OFF", "HDR Disabled"),
     AUTO("AUTO", "Automatic Scene & Low-Light Optimization"),
@@ -112,6 +122,13 @@ enum class VideoHdrMode(val label: String, val description: String) {
 data class VideoHdrState(
     val mode: VideoHdrMode = VideoHdrMode.AUTO,
     val manualIntensity: Int = 50, // 0 to 100
+    val manualShadows: Int = 50, // 0 to 100 (default 50 = neutral baseline)
+    val manualHighlights: Int = 50, // 0 to 100 (default 50 = neutral baseline)
+    val manualContrast: Int = 50, // 0 to 100 (default 50 = neutral baseline)
+    val manualExposure: Int = 50, // 0 to 100 (default 50 = neutral baseline)
+    val manualBlackLevel: Int = 50, // 0 to 100 (default 50 = neutral baseline)
+    val manualMidtones: Int = 50, // 0 to 100 (default 50 = neutral baseline)
+    val manualSaturation: Int = 50, // 0 to 100 (default 50 = neutral baseline)
     val isHdrActive: Boolean = true,
     val currentStrength: Float = 0f,
     val shadowLift: Float = 0f,

@@ -137,6 +137,7 @@ fun CameraScreen(
     val colorProfile by viewModel.colorProfile.collectAsStateWithLifecycle()
     val isAudioEnabled by viewModel.isAudioEnabled.collectAsStateWithLifecycle()
     val currentVideoQuality by viewModel.currentVideoQuality.collectAsStateWithLifecycle()
+    val viewfinderResolution by viewModel.viewfinderResolution.collectAsStateWithLifecycle()
 
     Box(
         modifier = modifier
@@ -240,18 +241,26 @@ fun CameraScreen(
         // Floating button to reopen Portrait Settings when closed
         if (cameraMode == CameraMode.PORTRAIT && !isPortraitSettingsOpen) {
             Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = Color.Black.copy(alpha = 0.7f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD54F).copy(alpha = 0.6f)),
+                shape = RoundedCornerShape(22.dp),
+                color = Color(0xFF141722).copy(alpha = 0.72f),
+                border = androidx.compose.foundation.BorderStroke(
+                    width = 1.dp,
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFFFFD54F).copy(alpha = 0.8f),
+                            Color.White.copy(alpha = 0.12f)
+                        )
+                    )
+                ),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 190.dp)
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(22.dp))
                     .clickable { viewModel.setPortraitSettingsOpen(true) }
                     .testTag("open_portrait_settings_button")
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -284,6 +293,13 @@ fun CameraScreen(
                 hdrState = videoHdrState,
                 onModeChanged = { viewModel.setVideoHdrMode(it) },
                 onIntensityChanged = { viewModel.setVideoHdrManualIntensity(it) },
+                onShadowsChanged = { viewModel.setVideoHdrManualShadows(it) },
+                onHighlightsChanged = { viewModel.setVideoHdrManualHighlights(it) },
+                onContrastChanged = { viewModel.setVideoHdrManualContrast(it) },
+                onExposureChanged = { viewModel.setVideoHdrManualExposure(it) },
+                onBlackLevelChanged = { viewModel.setVideoHdrManualBlackLevel(it) },
+                onMidtonesChanged = { viewModel.setVideoHdrManualMidtones(it) },
+                onSaturationChanged = { viewModel.setVideoHdrManualSaturation(it) },
                 onClose = { viewModel.setVideoHdrPanelOpen(false) },
                 modifier = Modifier.padding(horizontal = 12.dp)
             )
@@ -369,10 +385,12 @@ fun CameraScreen(
             isRawEnabled = isRawEnabled,
             saveSelfieAsPreviewed = saveSelfieAsPreviewed,
             hdrState = videoHdrState,
+            viewfinderResolution = viewfinderResolution,
             onLensSelected = { viewModel.selectLens(it) },
             onForceDeepScan = { viewModel.forceDeepScanLenses() },
             onPhotoResolutionSelected = { viewModel.selectPhotoResolution(it) },
             onVideoResolutionSelected = { viewModel.selectVideoResolution(it) },
+            onViewfinderResolutionSelected = { viewModel.setViewfinderResolution(it) },
             onVideoFpsSelected = { viewModel.setVideoFps(it) },
             onVideoBitrateSelected = { viewModel.setVideoBitrate(it) },
             onStabilizationToggle = { viewModel.setVideoStabilization(it) },
