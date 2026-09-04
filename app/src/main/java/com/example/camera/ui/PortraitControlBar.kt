@@ -198,9 +198,11 @@ fun PortraitControlBar(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Row 3: Bokeh Style (Natural vs Strong)
+            // Row 3: Cinematic Bokeh Styles (Round, Elliptical, Polygonal, Light Source)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {

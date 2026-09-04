@@ -12,15 +12,22 @@ enum class CameraMode(val title: String) {
 data class PortraitConfig(
     val blurStrength: Float = 60f, // 0..100
     val simulatedAperture: String = "f/1.4", // f/0.95, f/1.2, f/1.4, f/1.8, f/2.4, f/2.8
-    val bokehStyle: BokehStyle = BokehStyle.NATURAL,
+    val bokehStyle: BokehStyle = BokehStyle.NATURAL_ROUND,
     val faceEnhancement: Boolean = false,
     val skinToneCorrection: Boolean = false,
     val showDepthPreview: Boolean = false
 )
 
 enum class BokehStyle(val label: String, val description: String) {
-    NATURAL("Natural", "Creamy optical depth falloff"),
-    STRONG("Strong Bokeh", "Specular lens bokeh circles")
+    NATURAL_ROUND("Round", "Classic circular optical bokeh"),
+    SOFT_ELLIPTICAL("Elliptical", "Anamorphic cat-eye bokeh"),
+    POLYGONAL_APERTURE("Polygonal", "Aperture blade bokeh"),
+    LIGHT_SOURCE("Light Source", "Glowing optical highlight discs");
+
+    companion object {
+        val NATURAL: BokehStyle get() = NATURAL_ROUND
+        val STRONG: BokehStyle get() = LIGHT_SOURCE
+    }
 }
 
 data class PortraitProcessingState(
