@@ -555,7 +555,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     fun setViewfinderResolution(res: ViewfinderResolution) {
         _viewfinderResolution.value = res
         preferences.viewfinderResolution = res
-        engine.setViewfinderResolution(res)
+        engine.applyViewfinderResolution(res)
         showToast("Viewfinder: ${res.label}")
     }
 

@@ -64,15 +64,16 @@ fun ManualProControlBar(
         exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
         modifier = modifier
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .clip(RoundedCornerShape(24.dp))
                 .background(
                     androidx.compose.ui.graphics.Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFF131722).copy(alpha = 0.76f),
-                            Color(0xFF090B10).copy(alpha = 0.90f)
+                            Color(0xFF161A29).copy(alpha = 0.65f),
+                            Color(0xFF0C0E18).copy(alpha = 0.75f)
                         )
                     )
                 )
@@ -80,15 +81,16 @@ fun ManualProControlBar(
                     width = 1.dp,
                     brush = androidx.compose.ui.graphics.Brush.verticalGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = 0.30f),
-                            Color.White.copy(alpha = 0.08f)
+                            Color.White.copy(alpha = 0.38f),
+                            Color.White.copy(alpha = 0.10f)
                         )
                     ),
-                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                    shape = RoundedCornerShape(24.dp)
                 )
                 .padding(vertical = 12.dp)
                 .testTag("manual_pro_bar")
         ) {
+            Column {
             // Lock Indicators & Top Toggles
             Row(
                 modifier = Modifier
@@ -277,6 +279,7 @@ fun ManualProControlBar(
                     }
                 }
             }
+        }
         }
     }
 }

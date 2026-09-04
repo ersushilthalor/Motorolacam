@@ -138,6 +138,7 @@ fun CameraScreen(
     val isAudioEnabled by viewModel.isAudioEnabled.collectAsStateWithLifecycle()
     val currentVideoQuality by viewModel.currentVideoQuality.collectAsStateWithLifecycle()
     val viewfinderResolution by viewModel.viewfinderResolution.collectAsStateWithLifecycle()
+    val currentZoom by viewModel.currentZoom.collectAsStateWithLifecycle()
 
     Box(
         modifier = modifier
@@ -238,16 +239,16 @@ fun CameraScreen(
             )
         }
 
-        // Floating button to reopen Portrait Settings when closed
+        // Floating button to open Aperture Setting in Portrait Mode (only 'f' icon)
         if (cameraMode == CameraMode.PORTRAIT && !isPortraitSettingsOpen) {
             Surface(
-                shape = RoundedCornerShape(22.dp),
-                color = Color(0xFF141722).copy(alpha = 0.72f),
+                shape = CircleShape,
+                color = Color(0xFF141724).copy(alpha = 0.65f),
                 border = androidx.compose.foundation.BorderStroke(
                     width = 1.dp,
                     brush = androidx.compose.ui.graphics.Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFFFFD54F).copy(alpha = 0.8f),
+                            Color.White.copy(alpha = 0.40f),
                             Color.White.copy(alpha = 0.12f)
                         )
                     )
@@ -255,26 +256,19 @@ fun CameraScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 190.dp)
-                    .clip(RoundedCornerShape(22.dp))
+                    .size(46.dp)
+                    .clip(CircleShape)
                     .clickable { viewModel.setPortraitSettingsOpen(true) }
                     .testTag("open_portrait_settings_button")
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = "Open portrait settings",
-                        tint = Color(0xFFFFD54F),
-                        modifier = Modifier.size(16.dp)
-                    )
+                Box(contentAlignment = Alignment.Center) {
                     Text(
-                        text = "Portrait Settings",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
+                        text = "f",
+                        color = Color(0xFFFFD54F),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Serif
                     )
                 }
             }
@@ -346,6 +340,8 @@ fun CameraScreen(
         // 5. Bottom Controls (Uses displayedLenses filtered strictly by active lens facing)
         BottomControlBar(
             cameraMode = cameraMode,
+            currentZoom = currentZoom,
+            onZoomChange = { zoom -> viewModel.setZoom(zoom) },
             availableLenses = displayedLenses,
             selectedLens = selectedLens,
             isRecordingVideo = isRecordingVideo,

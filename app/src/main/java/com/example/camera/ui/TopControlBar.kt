@@ -30,7 +30,7 @@ fun TopControlBar(
     gridType: GridType,
     isRawEnabled: Boolean,
     supportsRaw: Boolean,
-    storageStats: StorageStats,
+    storageStats: StorageStats = StorageStats(),
     videoQuality: VideoQualityOption = VideoQualityOption.UHD_4K_30,
     hdrState: VideoHdrState = VideoHdrState(),
     onVideoQualityClick: () -> Unit = {},
@@ -42,104 +42,129 @@ fun TopControlBar(
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color.Black.copy(alpha = 0.75f),
+                        Color.Black.copy(alpha = 0.70f),
                         Color.Transparent
                     )
                 )
             )
             .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
-        // Storage Chip & Video Quality / RAW Row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Storage Capacity Chip
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color.Black.copy(alpha = 0.55f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
-                modifier = Modifier.testTag("storage_chip")
+            // Left Group: Flash & Timer (Photo Mode)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // Flash Button
+                IconButton(
+                    onClick = onFlashClick,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                        .testTag("flash_button")
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.SdStorage,
-                        contentDescription = "Storage",
-                        tint = Color(0xFF64FFDA),
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    val storageText = if (cameraMode == CameraMode.PHOTO) {
-                        "%.1f GB Free · ~%s img".format(
-                            storageStats.freeGb,
-                            if (storageStats.estimatedPhotos > 9999) "${storageStats.estimatedPhotos / 1000}k" else storageStats.estimatedPhotos.toString()
-                        )
-                    } else {
-                        "%.1f GB Free · ~%dh %dm".format(
-                            storageStats.freeGb,
-                            storageStats.estimatedVideoMinutes / 60,
-                            storageStats.estimatedVideoMinutes % 60
-                        )
+                    val (flashIcon, flashColor) = when (flashMode) {
+                        FlashMode.OFF -> Icons.Outlined.FlashOff to Color.White.copy(alpha = 0.75f)
+                        FlashMode.AUTO -> Icons.Outlined.FlashAuto to Color(0xFFFFD54F)
+                        FlashMode.ON -> Icons.Outlined.FlashOn to Color(0xFFFFD54F)
+                        FlashMode.TORCH -> Icons.Outlined.Highlight to Color(0xFFFFB300)
                     }
-                    Text(
-                        text = storageText,
-                        color = Color.White.copy(alpha = 0.9f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
+                    Icon(
+                        imageVector = flashIcon,
+                        contentDescription = "Flash: ${flashMode.title}",
+                        tint = flashColor,
+                        modifier = Modifier.size(19.dp)
                     )
+                }
+
+                // Timer Button (Photo / Portrait Modes)
+                if (cameraMode != CameraMode.VIDEO) {
+                    IconButton(
+                        onClick = onTimerClick,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.45f))
+                            .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                            .testTag("timer_button")
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (timerMode == TimerMode.OFF) Icons.Outlined.TimerOff else Icons.Outlined.Timer,
+                                contentDescription = "Timer: ${timerMode.label}",
+                                tint = if (timerMode == TimerMode.OFF) Color.White.copy(alpha = 0.75f) else Color(0xFFFFD54F),
+                                modifier = Modifier.size(19.dp)
+                            )
+                            if (timerMode != TimerMode.OFF) {
+                                Text(
+                                    text = timerMode.label,
+                                    color = Color(0xFFFFD54F),
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Black,
+                                    modifier = Modifier
+                                        .offset(x = 8.dp, y = 6.dp)
+                                        .background(Color.Black, shape = CircleShape)
+                                        .padding(1.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
-            // Video Mode: Direct HDR & Video Quality Chips
-            if (cameraMode == CameraMode.VIDEO) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+            // Center Group: Mode-Specific Liquid Frosted Badges
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Video Mode: Direct HDR & Video Quality Chips
+                if (cameraMode == CameraMode.VIDEO) {
                     // HDR Chip
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         color = if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-                                else Color.Black.copy(alpha = 0.55f),
+                                else Color.Black.copy(alpha = 0.45f),
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
-                            if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                            else Color.White.copy(alpha = 0.2f)
+                            if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.75f)
+                            else Color.White.copy(alpha = 0.18f)
                         ),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(14.dp))
                             .clickable { onHdrClick() }
                             .testTag("top_hdr_chip")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = if (hdrState.isHdrActive) Icons.Default.HdrOn else Icons.Default.HdrOff,
                                 contentDescription = "Video HDR",
-                                tint = if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.6f),
+                                tint = if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.65f),
                                 modifier = Modifier.size(13.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = when (hdrState.mode) {
-                                    com.example.camera.model.VideoHdrMode.OFF -> "HDR OFF"
-                                    com.example.camera.model.VideoHdrMode.AUTO -> "HDR AUTO"
-                                    com.example.camera.model.VideoHdrMode.MANUAL -> "HDR ${hdrState.manualIntensity}%"
+                                    VideoHdrMode.OFF -> "HDR OFF"
+                                    VideoHdrMode.AUTO -> "HDR AUTO"
+                                    VideoHdrMode.MANUAL -> "HDR ${hdrState.manualIntensity}%"
                                 },
-                                color = if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.7f),
+                                color = if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -148,158 +173,103 @@ fun TopControlBar(
 
                     // Video Quality Chip
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFFE53935).copy(alpha = 0.25f),
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFFE53935).copy(alpha = 0.22f),
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
-                            Color(0xFFFF5252).copy(alpha = 0.8f)
+                            Color(0xFFFF5252).copy(alpha = 0.75f)
                         ),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(14.dp))
                             .clickable { onVideoQualityClick() }
                             .testTag("video_quality_chip")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(7.dp)
+                                    .size(6.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFFFF5252))
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
                                 text = videoQuality.badgeLabel,
                                 color = Color.White,
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
                 }
-            }
 
-            // Photo Mode: RAW toggle chip (if supported)
-            if (cameraMode == CameraMode.PHOTO && supportsRaw) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isRawEnabled) Color(0xFFFFB300).copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.55f),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (isRawEnabled) Color(0xFFFFB300) else Color.White.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { onRawClick() }
-                        .testTag("raw_toggle_chip")
-                ) {
-                    Text(
-                        text = "RAW",
-                        color = if (isRawEnabled) Color(0xFFFFB300) else Color.White.copy(alpha = 0.6f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Quick Action Icons Row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Flash Button
-            IconButton(
-                onClick = onFlashClick,
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.45f))
-                    .testTag("flash_button")
-            ) {
-                val (flashIcon, flashColor) = when (flashMode) {
-                    FlashMode.OFF -> Icons.Outlined.FlashOff to Color.White.copy(alpha = 0.7f)
-                    FlashMode.AUTO -> Icons.Outlined.FlashAuto to Color(0xFFFFD54F)
-                    FlashMode.ON -> Icons.Outlined.FlashOn to Color(0xFFFFD54F)
-                    FlashMode.TORCH -> Icons.Outlined.Highlight to Color(0xFFFFB300)
-                }
-                Icon(
-                    imageVector = flashIcon,
-                    contentDescription = "Flash: ${flashMode.title}",
-                    tint = flashColor,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            // Timer Button
-            IconButton(
-                onClick = onTimerClick,
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.45f))
-                    .testTag("timer_button")
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = if (timerMode == TimerMode.OFF) Icons.Outlined.TimerOff else Icons.Outlined.Timer,
-                        contentDescription = "Timer: ${timerMode.label}",
-                        tint = if (timerMode == TimerMode.OFF) Color.White.copy(alpha = 0.7f) else Color(0xFFFFD54F),
-                        modifier = Modifier.size(20.dp)
-                    )
-                    if (timerMode != TimerMode.OFF) {
+                // Photo Mode: RAW toggle chip (if supported)
+                if (cameraMode == CameraMode.PHOTO && supportsRaw) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (isRawEnabled) Color(0xFFFFB300).copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.45f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isRawEnabled) Color(0xFFFFB300) else Color.White.copy(alpha = 0.18f)
+                        ),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { onRawClick() }
+                            .testTag("raw_toggle_chip")
+                    ) {
                         Text(
-                            text = timerMode.label,
-                            color = Color(0xFFFFD54F),
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Black,
-                            modifier = Modifier
-                                .offset(x = 8.dp, y = 6.dp)
-                                .background(Color.Black, shape = CircleShape)
-                                .padding(1.dp)
+                            text = "RAW",
+                            color = if (isRawEnabled) Color(0xFFFFB300) else Color.White.copy(alpha = 0.65f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
                         )
                     }
                 }
             }
 
-            // Grid Button
-            IconButton(
-                onClick = onGridClick,
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.45f))
-                    .testTag("grid_button")
+            // Right Group: Grid & Settings Button
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = if (gridType == GridType.NONE) Icons.Outlined.GridOff else Icons.Outlined.GridOn,
-                    contentDescription = "Grid: ${gridType.title}",
-                    tint = if (gridType == GridType.NONE) Color.White.copy(alpha = 0.7f) else Color(0xFF64FFDA),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+                // Grid Button
+                IconButton(
+                    onClick = onGridClick,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                        .testTag("grid_button")
+                ) {
+                    Icon(
+                        imageVector = if (gridType == GridType.NONE) Icons.Outlined.GridOff else Icons.Outlined.GridOn,
+                        contentDescription = "Grid: ${gridType.title}",
+                        tint = if (gridType == GridType.NONE) Color.White.copy(alpha = 0.75f) else Color(0xFF64FFDA),
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
 
-            // Settings Button
-            IconButton(
-                onClick = onSettingsClick,
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.45f))
-                    .testTag("settings_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Settings,
-                    contentDescription = "Settings",
-                    tint = Color.White.copy(alpha = 0.9f),
-                    modifier = Modifier.size(20.dp)
-                )
+                // Settings Button (Always neatly placed at top-right corner)
+                IconButton(
+                    onClick = onSettingsClick,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                        .testTag("settings_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Settings,
+                        contentDescription = "Settings",
+                        tint = Color.White.copy(alpha = 0.9f),
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
             }
         }
     }

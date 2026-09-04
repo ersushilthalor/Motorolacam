@@ -7,6 +7,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,14 +15,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -29,19 +30,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.camera.model.*
+import kotlin.math.absoluteValue
+import kotlin.math.roundToInt
 
 @Composable
 fun BottomControlBar(
     cameraMode: CameraMode,
-    availableLenses: List<LensInfo>,
-    selectedLens: LensInfo?,
+    currentZoom: Float = 1.0f,
+    onZoomChange: (Float) -> Unit = {},
+    availableLenses: List<LensInfo> = emptyList(),
+    selectedLens: LensInfo? = null,
     isRecordingVideo: Boolean,
     videoDurationSeconds: Int,
     isCapturing: Boolean,
     isManualProOpen: Boolean,
     lastCapturedMedia: CapturedMedia?,
     activeTimerCountdown: Int?,
-    onLensSelected: (LensInfo) -> Unit,
+    onLensSelected: (LensInfo) -> Unit = {},
     onModeSelected: (CameraMode) -> Unit,
     onShutterClick: () -> Unit,
     onFlipCameraClick: () -> Unit,
@@ -129,59 +134,12 @@ fun BottomControlBar(
             }
         }
 
-        // Lens Selector Row (shows hardware lenses and zoom presets seamlessly during both preview and recording)
-        if (availableLenses.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .padding(bottom = 12.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
-                    .padding(horizontal = 6.dp, vertical = 3.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                availableLenses.forEach { lens ->
-                    val isSelected = selectedLens?.id == lens.id || (
-                        selectedLens?.cameraId == lens.cameraId &&
-                        selectedLens?.isZoomPreset == lens.isZoomPreset &&
-                        selectedLens?.baseZoomRatio == lens.baseZoomRatio &&
-                        selectedLens?.lensType == lens.lensType
-                    )
-                    val pillBg by animateColorAsState(
-                        if (isSelected) Color(0xFFFFD54F) else Color.Transparent,
-                        label = "lensPillBg"
-                    )
-                    val textColor by animateColorAsState(
-                        if (isSelected) Color.Black else Color.White.copy(alpha = 0.85f),
-                        label = "lensTextColor"
-                    )
-
-                    val label = when {
-                        availableLenses.count { it.lensType == lens.lensType } > 1 && lens.isHiddenAux ->
-                            "${lens.lensType.shortLabel}*"
-                        else -> lens.lensType.shortLabel
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(pillBg)
-                            .clickable { onLensSelected(lens) }
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
-                            .testTag("lens_button_${lens.cameraId}_${lens.lensType.name}"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = label,
-                            color = textColor,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
-                        )
-                    }
-                }
-            }
-        }
+        // Liquid Frosted Transparent Zoom Bar (.5x to 10x, smooth gesture scrubbing)
+        LiquidFrostedZoomBar(
+            currentZoom = currentZoom,
+            onZoomChange = onZoomChange,
+            modifier = Modifier.testTag("liquid_zoom_bar_container")
+        )
 
         // Bottom Mode Switcher (PHOTO / VIDEO)
         if (!isRecordingVideo) {
@@ -362,6 +320,112 @@ fun BottomControlBar(
                         color = if (isManualProOpen) Color.Black else Color.White,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Black
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Liquid Frosted Transparent Zoom Bar (.5x to 10x, smooth gesture scrubbing)
+ */
+@Composable
+fun LiquidFrostedZoomBar(
+    currentZoom: Float,
+    onZoomChange: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val presets = remember { listOf(0.5f, 1.0f, 2.0f, 5.0f, 10.0f) }
+    var isDragging by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = modifier
+            .padding(bottom = 12.dp)
+            .clip(RoundedCornerShape(26.dp))
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF161A28).copy(alpha = 0.55f),
+                        Color(0xFF0C0E18).copy(alpha = 0.65f)
+                    )
+                )
+            )
+            .border(
+                width = 1.dp,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.35f),
+                        Color.White.copy(alpha = 0.12f),
+                        Color.White.copy(alpha = 0.35f)
+                    )
+                ),
+                shape = RoundedCornerShape(26.dp)
+            )
+            .pointerInput(currentZoom) {
+                detectHorizontalDragGestures(
+                    onDragStart = { isDragging = true },
+                    onDragEnd = { isDragging = false },
+                    onDragCancel = { isDragging = false },
+                    onHorizontalDrag = { _, dragAmount ->
+                        val sensitivity = 0.025f
+                        val newZoom = (currentZoom + dragAmount * sensitivity).coerceIn(0.5f, 10.0f)
+                        val rounded = (newZoom * 10).roundToInt() / 10f
+                        onZoomChange(rounded)
+                    }
+                )
+            }
+            .padding(horizontal = 6.dp, vertical = 4.dp)
+            .testTag("liquid_zoom_bar"),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            presets.forEach { preset ->
+                val isExactMatch = (currentZoom - preset).absoluteValue < 0.18f
+                val isClosest = presets.minByOrNull { (it - currentZoom).absoluteValue } == preset
+
+                val isHighlighted = isExactMatch || (isClosest && !isDragging)
+                val pillBg by animateColorAsState(
+                    if (isHighlighted) Color(0xFFFFD54F) else Color.Transparent,
+                    label = "zoomPillBg"
+                )
+                val textColor by animateColorAsState(
+                    if (isHighlighted) Color.Black else Color.White.copy(alpha = 0.85f),
+                    label = "zoomTextColor"
+                )
+
+                val label = when {
+                    preset == 0.5f -> ".5x"
+                    preset == 1.0f -> "1x"
+                    preset == 2.0f -> "2x"
+                    preset == 5.0f -> "5x"
+                    preset == 10.0f -> "10x"
+                    else -> "${preset}x"
+                }
+
+                val displayLabel = if (isClosest && (currentZoom - preset).absoluteValue >= 0.25f) {
+                    "%.1fx".format(currentZoom)
+                } else {
+                    label
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(pillBg)
+                        .clickable { onZoomChange(preset) }
+                        .padding(horizontal = 9.dp, vertical = 5.dp)
+                        .testTag("zoom_preset_${preset}"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = displayLabel,
+                        color = textColor,
+                        fontSize = 12.sp,
+                        fontWeight = if (isHighlighted) FontWeight.ExtraBold else FontWeight.Medium
                     )
                 }
             }

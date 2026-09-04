@@ -1847,7 +1847,7 @@ class Camera2Engine(private val context: Context) {
         }
     }
 
-    fun setViewfinderResolution(resolution: ViewfinderResolution) {
+    fun applyViewfinderResolution(resolution: ViewfinderResolution) {
         if (viewfinderResolution == resolution) return
         viewfinderResolution = resolution
         restartCamera()

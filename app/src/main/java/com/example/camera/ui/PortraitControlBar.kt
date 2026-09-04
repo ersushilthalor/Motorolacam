@@ -1,11 +1,6 @@
 package com.example.camera.ui
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,8 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,6 +19,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,22 +35,23 @@ fun PortraitControlBar(
     onBlurStrengthChanged: (Float) -> Unit,
     onApertureSelected: (String) -> Unit,
     onBokehStyleSelected: (BokehStyle) -> Unit,
-    onToggleFaceEnhancement: () -> Unit,
-    onToggleSkinTone: () -> Unit,
+    onToggleFaceEnhancement: () -> Unit = {},
+    onToggleSkinTone: () -> Unit = {},
     onClose: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val apertures = listOf("f/0.95", "f/1.2", "f/1.4", "f/1.8", "f/2.4", "f/2.8")
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(24.dp))
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF131722).copy(alpha = 0.76f),
-                        Color(0xFF090B10).copy(alpha = 0.90f)
+                        Color(0xFF161A29).copy(alpha = 0.65f),
+                        Color(0xFF0C0E18).copy(alpha = 0.75f)
                     )
                 )
             )
@@ -62,160 +59,165 @@ fun PortraitControlBar(
                 width = 1.dp,
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.30f),
-                        Color.White.copy(alpha = 0.08f)
+                        Color.White.copy(alpha = 0.38f),
+                        Color.White.copy(alpha = 0.10f)
                     )
                 ),
-                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                shape = RoundedCornerShape(24.dp)
             )
             .padding(horizontal = 16.dp, vertical = 14.dp)
+            .testTag("portrait_control_bar")
     ) {
-        // Top Header with Title and Clear Close (X) Button
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Column {
+            // Header: Aperture (f-stop) and Close (X) button
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = null,
-                    tint = Color(0xFFFFD54F),
-                    modifier = Modifier.size(18.dp)
-                )
-                Text(
-                    text = "Portrait Settings",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            IconButton(
-                onClick = onClose,
                 modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.12f))
-                    .testTag("close_portrait_settings")
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Close portrait settings",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-        }
-
-        // Row 1: Aperture Simulation Chips
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Aperture:",
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(end = 4.dp)
-            )
-
-            apertures.forEach { aperture ->
-                val isSelected = config.simulatedAperture == aperture
-                val bgColor by animateColorAsState(
-                    if (isSelected) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.08f),
-                    label = "apertureBg"
-                )
-                val textColor by animateColorAsState(
-                    if (isSelected) Color.Black else Color.White,
-                    label = "apertureText"
-                )
-
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(bgColor)
-                        .clickable { onApertureSelected(aperture) }
-                        .padding(horizontal = 12.dp, vertical = 5.dp)
-                        .testTag("aperture_chip_$aperture"),
-                    contentAlignment = Alignment.Center
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFFFD54F).copy(alpha = 0.20f))
+                            .border(1.dp, Color(0xFFFFD54F).copy(alpha = 0.50f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "f",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontStyle = FontStyle.Italic,
+                            fontFamily = FontFamily.Serif
+                        )
+                    }
                     Text(
-                        text = aperture,
-                        color = textColor,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.Medium
+                        text = "Aperture & Depth",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.3.sp
+                    )
+                }
+
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.12f))
+                        .testTag("close_portrait_settings")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close aperture settings",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Row 2: Blur Strength Slider
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.BlurOn,
-                contentDescription = null,
-                tint = Color(0xFFFFD54F),
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = "Depth Blur: ${config.blurStrength.toInt()}%",
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.width(110.dp)
-            )
-            Slider(
-                value = config.blurStrength,
-                onValueChange = onBlurStrengthChanged,
-                valueRange = 0f..100f,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("portrait_blur_slider"),
-                colors = SliderDefaults.colors(
-                    thumbColor = Color(0xFFFFD54F),
-                    activeTrackColor = Color(0xFFFFD54F),
-                    inactiveTrackColor = Color.White.copy(alpha = 0.2f)
-                )
-            )
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // Row 3: Bokeh Style & Enhancement Toggles
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Bokeh Style Chips (Natural vs Strong Bokeh)
+            // Row 1: Aperture Simulation Chips
             Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                apertures.forEach { aperture ->
+                    val isSelected = config.simulatedAperture == aperture
+                    val bgColor by animateColorAsState(
+                        if (isSelected) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.08f),
+                        label = "apertureBg"
+                    )
+                    val textColor by animateColorAsState(
+                        if (isSelected) Color.Black else Color.White,
+                        label = "apertureText"
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(bgColor)
+                            .border(
+                                1.dp,
+                                if (isSelected) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.12f),
+                                RoundedCornerShape(14.dp)
+                            )
+                            .clickable { onApertureSelected(aperture) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .testTag("aperture_chip_$aperture"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = aperture,
+                            color = textColor,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Black else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Row 2: Depth Blur Slider
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Blur: ${config.blurStrength.toInt()}%",
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.width(80.dp)
+                )
+                Slider(
+                    value = config.blurStrength,
+                    onValueChange = onBlurStrengthChanged,
+                    valueRange = 0f..100f,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("portrait_blur_slider"),
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFFFFD54F),
+                        activeTrackColor = Color(0xFFFFD54F),
+                        inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Row 3: Bokeh Style (Natural vs Strong)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Bokeh:",
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
                 BokehStyle.values().forEach { style ->
                     val isSelected = config.bokehStyle == style
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        color = if (isSelected) Color(0xFFFFD54F).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.06f),
+                        color = if (isSelected) Color(0xFFFFD54F).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f),
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
-                            if (isSelected) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.1f)
+                            if (isSelected) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.12f)
                         ),
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
@@ -224,82 +226,10 @@ fun PortraitControlBar(
                     ) {
                         Text(
                             text = style.label,
-                            color = if (isSelected) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.7f),
+                            color = if (isSelected) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.75f),
                             fontSize = 11.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-            }
-
-            // Quick Enhancement Toggles
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Face enhancement toggle
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (config.faceEnhancement) Color(0xFF00E676).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.06f),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (config.faceEnhancement) Color(0xFF00E676) else Color.White.copy(alpha = 0.1f)
-                    ),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable { onToggleFaceEnhancement() }
-                        .testTag("toggle_face_enhancement")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Face,
-                            contentDescription = null,
-                            tint = if (config.faceEnhancement) Color(0xFF00E676) else Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = "Face",
-                            color = if (config.faceEnhancement) Color(0xFF00E676) else Color.White.copy(alpha = 0.7f),
-                            fontSize = 11.sp,
-                            fontWeight = if (config.faceEnhancement) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                }
-
-                // Skin tone correction toggle
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (config.skinToneCorrection) Color(0xFFFFAB40).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.06f),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (config.skinToneCorrection) Color(0xFFFFAB40) else Color.White.copy(alpha = 0.1f)
-                    ),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable { onToggleSkinTone() }
-                        .testTag("toggle_skin_tone")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ColorLens,
-                            contentDescription = null,
-                            tint = if (config.skinToneCorrection) Color(0xFFFFAB40) else Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = "Tone",
-                            color = if (config.skinToneCorrection) Color(0xFFFFAB40) else Color.White.copy(alpha = 0.7f),
-                            fontSize = 11.sp,
-                            fontWeight = if (config.skinToneCorrection) FontWeight.Bold else FontWeight.Normal
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         )
                     }
                 }

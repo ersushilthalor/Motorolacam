@@ -50,15 +50,16 @@ fun VideoHdrControlBar(
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(24.dp))
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF131722).copy(alpha = 0.76f),
-                        Color(0xFF090B10).copy(alpha = 0.90f)
+                        Color(0xFF161A29).copy(alpha = 0.65f),
+                        Color(0xFF0C0E18).copy(alpha = 0.75f)
                     )
                 )
             )
@@ -66,15 +67,16 @@ fun VideoHdrControlBar(
                 width = 1.dp,
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.30f),
-                        Color.White.copy(alpha = 0.08f)
+                        Color.White.copy(alpha = 0.38f),
+                        Color.White.copy(alpha = 0.10f)
                     )
                 ),
-                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                shape = RoundedCornerShape(24.dp)
             )
             .padding(horizontal = 16.dp, vertical = 14.dp)
             .testTag("video_hdr_control_bar")
     ) {
+        Column {
         // 1. Header: Title, Live Status Badge, and Close Button
         Row(
             modifier = Modifier
@@ -444,6 +446,7 @@ fun VideoHdrControlBar(
                         }
                     }
                 }
+            }
             }
         }
     }
