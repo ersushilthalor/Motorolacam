@@ -125,6 +125,8 @@ class Camera2Engine(private val context: Context) {
     var colorProfile: ColorProfile = ColorProfile.STANDARD
     var isAudioEnabled: Boolean = true
     var currentZoom: Float = 1.0f
+    private val _currentZoom = MutableStateFlow(1.0f)
+    val currentZoomState: StateFlow<Float> = _currentZoom.asStateFlow()
     var saveSelfieAsPreviewed: Boolean = true
     var viewfinderResolution: ViewfinderResolution = ViewfinderResolution.NORMAL
 
@@ -134,6 +136,9 @@ class Camera2Engine(private val context: Context) {
     private var isStartingCamera = false
     @Volatile
     private var isClosingCamera = false
+    @Volatile
+    private var restartPending = false
+    private var zoomDebounceJob: Job? = null
 
     val videoHdrEngine = VideoHdrEngine()
     private val _videoHdrState = MutableStateFlow(videoHdrEngine.currentState)
@@ -284,7 +289,14 @@ class Camera2Engine(private val context: Context) {
                                 isPhysical = true,
                                 isHiddenAux = !isOfficial,
                                 isZoomPreset = false,
-                                baseZoomRatio = 1.0f,
+                                baseZoomRatio = when (lensType) {
+                                    LensType.ULTRAWIDE -> 0.5f
+                                    LensType.WIDE -> 1.0f
+                                    LensType.TELEPHOTO -> 2.0f
+                                    LensType.TELEPHOTO_3X -> 3.0f
+                                    LensType.MACRO -> 1.0f
+                                    LensType.FRONT -> 1.0f
+                                },
                                 fovDegrees = fovDegrees,
                                 equivalent35mmFocalMm = eq35mm,
                                 idTypeDescription = idDesc
@@ -339,7 +351,14 @@ class Camera2Engine(private val context: Context) {
                                             isPhysical = true,
                                             isHiddenAux = !officialIds.contains(physId),
                                             isZoomPreset = false,
-                                            baseZoomRatio = 1.0f,
+                                            baseZoomRatio = when (pType) {
+                                                LensType.ULTRAWIDE -> 0.5f
+                                                LensType.WIDE -> 1.0f
+                                                LensType.TELEPHOTO -> 2.0f
+                                                LensType.TELEPHOTO_3X -> 3.0f
+                                                LensType.MACRO -> 1.0f
+                                                LensType.FRONT -> 1.0f
+                                            },
                                             physicalCameraId = physId,
                                             fovDegrees = pFov,
                                             equivalent35mmFocalMm = pEq35,
@@ -680,6 +699,7 @@ class Camera2Engine(private val context: Context) {
         val previousLens = _selectedLens.value
         _selectedLens.value = lens
         currentZoom = lens.baseZoomRatio
+        _currentZoom.value = lens.baseZoomRatio
 
         // If recording video, prioritize continuity to ensure zero distortion and no video stop:
         // Adjust optical zoom ratio and crop dynamically on the active recording stream
@@ -688,10 +708,12 @@ class Camera2Engine(private val context: Context) {
             return
         }
 
-        // When switching lenses (e.g. 0.5x, 1x, 2x):
-        // Always inspect capabilities for the chosen lens's camera ID and restart camera so
-        // that the real physical hardware camera device is opened and configured natively,
-        // preserving preview aspect ratio, zoom ratio, and video stabilization.
+        // If same physical camera ID, update zoom without restarting camera hardware
+        if (previousLens?.cameraId == lens.cameraId && cameraDevice != null) {
+            updatePreviewSettings()
+            return
+        }
+
         inspectCapabilities(lens.cameraId)
         restartCamera()
     }
@@ -782,36 +804,61 @@ class Camera2Engine(private val context: Context) {
             setupImageReaders(lens.cameraId)
 
             synchronized(cameraLifecycleLock) {
-                if (isStartingCamera) return
+                if (isStartingCamera) {
+                    restartPending = true
+                    return
+                }
                 isStartingCamera = true
             }
 
             cameraManager.openCamera(lens.cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
+                    cameraDevice = camera
                     synchronized(cameraLifecycleLock) {
                         isStartingCamera = false
+                        if (restartPending) {
+                            restartPending = false
+                            backgroundHandler?.post { restartCamera() }
+                            return
+                        }
                     }
-                    cameraDevice = camera
                     createCameraCaptureSession()
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
-                    synchronized(cameraLifecycleLock) {
-                        isStartingCamera = false
-                    }
                     camera.close()
                     cameraDevice = null
                     _isCameraReady.value = false
+                    synchronized(cameraLifecycleLock) {
+                        isStartingCamera = false
+                        if (restartPending) {
+                            restartPending = false
+                            backgroundHandler?.post { restartCamera() }
+                        }
+                    }
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
                     Log.e(TAG, "Camera open error: $error")
-                    synchronized(cameraLifecycleLock) {
-                        isStartingCamera = false
-                    }
                     camera.close()
                     cameraDevice = null
                     _isCameraReady.value = false
+                    synchronized(cameraLifecycleLock) {
+                        isStartingCamera = false
+                        if (restartPending) {
+                            restartPending = false
+                            backgroundHandler?.post { restartCamera() }
+                            return
+                        }
+                    }
+                    // Auto-recover from transient HAL contention or device busy error
+                    if (error == CameraDevice.StateCallback.ERROR_CAMERA_IN_USE ||
+                        error == CameraDevice.StateCallback.ERROR_MAX_CAMERAS_IN_USE ||
+                        error == CameraDevice.StateCallback.ERROR_CAMERA_DEVICE) {
+                        backgroundHandler?.postDelayed({
+                            restartCamera()
+                        }, 200)
+                    }
                 }
             }, backgroundHandler)
         } catch (e: Exception) {
@@ -1048,12 +1095,29 @@ class Camera2Engine(private val context: Context) {
         val lens = _selectedLens.value ?: return
         try {
             val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+            val baseRatio = if (lens.baseZoomRatio > 0f) lens.baseZoomRatio else 1.0f
 
-            // On Android 11+ (API 30+), CONTROL_ZOOM_RATIO natively supports < 1.0f (Ultra-Wide 0.5x/0.6x) and optical switching
+            // Compute sensor-relative zoom ratio:
+            // e.g. On 0.5x Ultra-Wide sensor (baseRatio = 0.5f), 0.5f zoom gives effectiveZoomRatio = 1.0f (full native FOV)
+            // 0.75f gives effectiveZoomRatio = 1.5f digital crop
+            // On 1x Main sensor (baseRatio = 1.0f), 1.0f gives effectiveZoomRatio = 1.0f, 2.0f gives 2.0f
+            val effectiveZoomRatio = if (lens.lensType == LensType.ULTRAWIDE && baseRatio <= 0.6f) {
+                (currentZoom / baseRatio).coerceAtLeast(1.0f)
+            } else if ((lens.lensType == LensType.TELEPHOTO || lens.lensType == LensType.TELEPHOTO_3X) && baseRatio > 1.2f) {
+                (currentZoom / baseRatio).coerceAtLeast(1.0f)
+            } else {
+                currentZoom.coerceAtLeast(1.0f)
+            }
+
+            // On Android 11+ (API 30+), CONTROL_ZOOM_RATIO natively supports < 1.0f (Ultra-Wide 0.5x/0.6x)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val zoomRange = chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
                 if (zoomRange != null) {
-                    val clamped = currentZoom.coerceIn(zoomRange.lower, zoomRange.upper)
+                    val clamped = if (zoomRange.lower <= 0.6f) {
+                        currentZoom.coerceIn(zoomRange.lower, zoomRange.upper)
+                    } else {
+                        effectiveZoomRatio.coerceIn(zoomRange.lower, zoomRange.upper)
+                    }
                     builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, clamped)
                     return
                 }
@@ -1062,7 +1126,7 @@ class Camera2Engine(private val context: Context) {
             // Fallback for legacy devices or SCALER_CROP_REGION
             val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return
             val maxZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1.0f
-            val zoom = currentZoom.coerceIn(1.0f, maxZoom)
+            val zoom = effectiveZoomRatio.coerceIn(1.0f, maxZoom)
 
             val cropW = (sensorRect.width() / zoom).toInt()
             val cropH = (sensorRect.height() / zoom).toInt()
@@ -1169,11 +1233,70 @@ class Camera2Engine(private val context: Context) {
     }
 
     /**
-     * Set Digital Zoom (1x to Max)
+     * Set Zoom (.5x to 10x) with seamless automatic lens switching
      */
-    fun setZoom(zoom: Float) {
-        currentZoom = zoom
-        updatePreviewSettings()
+    fun setZoom(zoom: Float, isPresetTap: Boolean = false) {
+        val clampedZoom = zoom.coerceIn(0.5f, 10.0f)
+        currentZoom = clampedZoom
+        _currentZoom.value = clampedZoom
+
+        val currentLens = _selectedLens.value ?: return
+
+        // If front selfie camera, apply digital zoom on active stream
+        if (currentLens.facing == CameraCharacteristics.LENS_FACING_FRONT) {
+            updatePreviewSettings()
+            return
+        }
+
+        // Identify target hardware lens for current zoom level:
+        val backLenses = _availableLenses.value.filter { it.facing == CameraCharacteristics.LENS_FACING_BACK }
+        val targetLens: LensInfo? = when {
+            clampedZoom < 0.9f -> {
+                // Target is 0.5x Ultra Wide
+                backLenses.firstOrNull { it.lensType == LensType.ULTRAWIDE && it.isPhysical }
+                    ?: backLenses.firstOrNull { it.lensType == LensType.ULTRAWIDE }
+            }
+            clampedZoom in 0.9f..1.95f -> {
+                // Target is 1x Main Wide
+                backLenses.firstOrNull { it.lensType == LensType.WIDE && !it.isZoomPreset }
+                    ?: backLenses.firstOrNull { it.lensType == LensType.WIDE }
+            }
+            clampedZoom >= 2.95f -> {
+                // Target is 3x Telephoto if hardware present, else 2x, else 1x
+                backLenses.firstOrNull { it.lensType == LensType.TELEPHOTO_3X && it.isPhysical }
+                    ?: backLenses.firstOrNull { it.lensType == LensType.TELEPHOTO && it.isPhysical }
+                    ?: backLenses.firstOrNull { it.lensType == LensType.WIDE && !it.isZoomPreset }
+            }
+            clampedZoom >= 1.95f -> {
+                // Target is 2x Telephoto if hardware present, else 1x
+                backLenses.firstOrNull { it.lensType == LensType.TELEPHOTO && it.isPhysical }
+                    ?: backLenses.firstOrNull { it.lensType == LensType.WIDE && !it.isZoomPreset }
+            }
+            else -> null
+        }
+
+        if (targetLens != null && targetLens.cameraId != currentLens.cameraId) {
+            zoomDebounceJob?.cancel()
+
+            if (isPresetTap) {
+                // Instant tap on .5, 1x, 2, 3, 10 -> switch hardware lens immediately
+                selectLens(targetLens)
+            } else {
+                // Continuous scrubbing: apply optical/digital zoom immediately to active preview,
+                // and switch physical camera ID once scrubbing settles (160ms) to prevent HAL freeze!
+                updatePreviewSettings()
+                zoomDebounceJob = engineScope.launch {
+                    delay(160)
+                    val activeNow = _selectedLens.value
+                    if (targetLens.cameraId != activeNow?.cameraId) {
+                        selectLens(targetLens)
+                    }
+                }
+            }
+        } else {
+            // Same hardware camera: apply zoom immediately
+            updatePreviewSettings()
+        }
     }
 
     /**
@@ -1554,6 +1677,28 @@ class Camera2Engine(private val context: Context) {
                 prepare()
             }
 
+            val videoRatio = max(videoRes.width, videoRes.height).toFloat() / min(videoRes.width, videoRes.height).toFloat()
+            _previewAspectRatio.value = videoRatio
+
+            // Ensure preview surface buffer matches video 16:9 ratio exactly to prevent any vertical stretch
+            previewSurfaceTexture?.let { texture ->
+                val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+                val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                val previewSizes = map?.getOutputSizes(SurfaceTexture::class.java) ?: emptyArray()
+                val matchingSize = previewSizes
+                    .filter {
+                        val r = max(it.width, it.height).toFloat() / min(it.width, it.height).toFloat()
+                        kotlin.math.abs(r - videoRatio) < 0.05f
+                    }
+                    .filter { max(it.width, it.height) <= 1920 }
+                    .maxByOrNull { it.width * it.height }
+                    ?: previewSizes.firstOrNull { it.width == 1920 && it.height == 1080 }
+                    ?: Size(videoRes.width, videoRes.height)
+
+                texture.setDefaultBufferSize(matchingSize.width, matchingSize.height)
+                previewSurface = Surface(texture)
+            }
+
             val recorderSurface = mediaRecorder!!.surface
             val previewSurf = previewSurface ?: return
 
@@ -1838,6 +1983,10 @@ class Camera2Engine(private val context: Context) {
     fun restartCamera() {
         backgroundHandler?.post {
             synchronized(cameraLifecycleLock) {
+                if (isStartingCamera) {
+                    restartPending = true
+                    return@synchronized
+                }
                 closeCameraInternal()
                 startCamera()
             }
@@ -1879,6 +2028,7 @@ class Camera2Engine(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error closing image readers", e)
         }
+        isStartingCamera = false
     }
 
     fun closeCamera() {

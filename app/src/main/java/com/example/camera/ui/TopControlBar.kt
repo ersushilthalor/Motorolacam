@@ -32,8 +32,11 @@ fun TopControlBar(
     supportsRaw: Boolean,
     storageStats: StorageStats = StorageStats(),
     videoQuality: VideoQualityOption = VideoQualityOption.UHD_4K_30,
+    videoResolution: CameraResolution? = null,
+    videoFps: Int = 30,
     hdrState: VideoHdrState = VideoHdrState(),
     onVideoQualityClick: () -> Unit = {},
+    onVideoSettingsClick: () -> Unit = {},
     onHdrClick: () -> Unit = {},
     onFlashClick: () -> Unit,
     onTimerClick: () -> Unit,
@@ -61,7 +64,7 @@ fun TopControlBar(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left Group: Flash & Timer (Photo Mode)
+            // Left Group: Settings, Flash & Timer
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -72,8 +75,8 @@ fun TopControlBar(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.45f))
-                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                        .background(Color(0xB21E1E22))
+                        .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape)
                         .testTag("flash_button")
                 ) {
                     val (flashIcon, flashColor) = when (flashMode) {
@@ -97,8 +100,8 @@ fun TopControlBar(
                         modifier = Modifier
                             .size(40.dp)
                             .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.45f))
-                            .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                            .background(Color(0xB21E1E22))
+                            .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape)
                             .testTag("timer_button")
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -125,83 +128,38 @@ fun TopControlBar(
                 }
             }
 
-            // Center Group: Mode-Specific Liquid Frosted Badges
+            // Center Group: Liquid Frosted Pill
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Video Mode: Direct HDR & Video Quality Chips
+                // Video Mode: Sleek Resolution · FPS Pill (matching reference screenshot)
                 if (cameraMode == CameraMode.VIDEO) {
-                    // HDR Chip
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-                                else Color.Black.copy(alpha = 0.45f),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.75f)
-                            else Color.White.copy(alpha = 0.18f)
-                        ),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
-                            .clickable { onHdrClick() }
-                            .testTag("top_hdr_chip")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = if (hdrState.isHdrActive) Icons.Default.HdrOn else Icons.Default.HdrOff,
-                                contentDescription = "Video HDR",
-                                tint = if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.65f),
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = when (hdrState.mode) {
-                                    VideoHdrMode.OFF -> "HDR OFF"
-                                    VideoHdrMode.AUTO -> "HDR AUTO"
-                                    VideoHdrMode.MANUAL -> "HDR ${hdrState.manualIntensity}%"
-                                },
-                                color = if (hdrState.isHdrActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                    val resLabel = when {
+                        videoResolution?.width == 3840 || videoResolution?.height == 3840 -> "4K"
+                        videoResolution?.width == 7680 || videoResolution?.height == 7680 -> "8K"
+                        videoResolution?.width == 1920 || videoResolution?.height == 1920 -> "1080"
+                        videoResolution?.width == 1280 || videoResolution?.height == 1280 -> "720"
+                        else -> "4K"
                     }
 
-                    // Video Quality Chip
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color(0xFFE53935).copy(alpha = 0.22f),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            Color(0xFFFF5252).copy(alpha = 0.75f)
-                        ),
+                    Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
-                            .clickable { onVideoQualityClick() }
-                            .testTag("video_quality_chip")
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xB21E1E22))
+                            .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(16.dp))
+                            .clickable { onVideoSettingsClick() }
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                            .testTag("video_resolution_fps_pill"),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFFF5252))
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = videoQuality.badgeLabel,
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Text(
+                            text = "$resLabel · $videoFps",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
                     }
                 }
 
@@ -209,10 +167,10 @@ fun TopControlBar(
                 if (cameraMode == CameraMode.PHOTO && supportsRaw) {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
-                        color = if (isRawEnabled) Color(0xFFFFB300).copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.45f),
+                        color = if (isRawEnabled) Color(0xFFFFB300).copy(alpha = 0.25f) else Color(0xB21E1E22),
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
-                            if (isRawEnabled) Color(0xFFFFB300) else Color.White.copy(alpha = 0.18f)
+                            if (isRawEnabled) Color(0xFFFFB300) else Color.White.copy(alpha = 0.20f)
                         ),
                         modifier = Modifier
                             .clip(RoundedCornerShape(14.dp))
@@ -221,7 +179,7 @@ fun TopControlBar(
                     ) {
                         Text(
                             text = "RAW",
-                            color = if (isRawEnabled) Color(0xFFFFB300) else Color.White.copy(alpha = 0.65f),
+                            color = if (isRawEnabled) Color(0xFFFFB300) else Color.White.copy(alpha = 0.85f),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
@@ -230,7 +188,7 @@ fun TopControlBar(
                 }
             }
 
-            // Right Group: Grid & Settings Button
+            // Right Group: Grid & Settings Button (Always positioned on far right)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -241,8 +199,8 @@ fun TopControlBar(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.45f))
-                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                        .background(Color(0xB21E1E22))
+                        .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape)
                         .testTag("grid_button")
                 ) {
                     Icon(
@@ -253,14 +211,14 @@ fun TopControlBar(
                     )
                 }
 
-                // Settings Button (Always neatly placed at top-right corner)
+                // Settings Button (Always on the top right)
                 IconButton(
                     onClick = onSettingsClick,
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.45f))
-                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                        .background(Color(0xB21E1E22))
+                        .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape)
                         .testTag("settings_button")
                 ) {
                     Icon(

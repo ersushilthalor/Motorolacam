@@ -3,12 +3,15 @@ package com.example.camera.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -20,8 +23,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -38,15 +43,13 @@ fun BottomControlBar(
     cameraMode: CameraMode,
     currentZoom: Float = 1.0f,
     onZoomChange: (Float) -> Unit = {},
-    availableLenses: List<LensInfo> = emptyList(),
-    selectedLens: LensInfo? = null,
+    onZoomPresetTap: (Float) -> Unit = onZoomChange,
     isRecordingVideo: Boolean,
     videoDurationSeconds: Int,
     isCapturing: Boolean,
     isManualProOpen: Boolean,
     lastCapturedMedia: CapturedMedia?,
     activeTimerCountdown: Int?,
-    onLensSelected: (LensInfo) -> Unit = {},
     onModeSelected: (CameraMode) -> Unit,
     onShutterClick: () -> Unit,
     onFlipCameraClick: () -> Unit,
@@ -134,11 +137,12 @@ fun BottomControlBar(
             }
         }
 
-        // Liquid Frosted Transparent Zoom Bar (.5x to 10x, smooth gesture scrubbing)
-        LiquidFrostedZoomBar(
+        // Horizontally Scrolling Liquid Transparent Zoom Bar (.5x to 10x, ultra-smooth)
+        HorizontalScrollingZoomBar(
             currentZoom = currentZoom,
             onZoomChange = onZoomChange,
-            modifier = Modifier.testTag("liquid_zoom_bar_container")
+            onZoomPresetTap = onZoomPresetTap,
+            modifier = Modifier.testTag("horizontal_scrolling_zoom_bar_container")
         )
 
         // Bottom Mode Switcher (PHOTO / VIDEO)
@@ -328,105 +332,109 @@ fun BottomControlBar(
 }
 
 /**
- * Liquid Frosted Transparent Zoom Bar (.5x to 10x, smooth gesture scrubbing)
+ * Horizontal Scrolling Liquid Transparent Zoom Bar (.5x to 10x, ultra-smooth)
+ * Styled exactly to the reference screenshot:
+ * Sleek frosted glass capsule, solid white circular active badge, black bold text, 3 vertical divider dots.
  */
 @Composable
-fun LiquidFrostedZoomBar(
+fun HorizontalScrollingZoomBar(
     currentZoom: Float,
     onZoomChange: (Float) -> Unit,
+    onZoomPresetTap: (Float) -> Unit = onZoomChange,
     modifier: Modifier = Modifier
 ) {
-    val presets = remember { listOf(0.5f, 1.0f, 2.0f, 5.0f, 10.0f) }
+    val presets = remember { listOf(0.5f, 1.0f, 2.0f, 3.0f, 10.0f) }
     var isDragging by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
-            .padding(bottom = 12.dp)
-            .clip(RoundedCornerShape(26.dp))
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF161A28).copy(alpha = 0.55f),
-                        Color(0xFF0C0E18).copy(alpha = 0.65f)
-                    )
-                )
-            )
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 6.dp)
+            .height(46.dp)
+            .clip(RoundedCornerShape(23.dp))
+            .background(Color(0xB21A1A1E))
             .border(
                 width = 1.dp,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.35f),
-                        Color.White.copy(alpha = 0.12f),
-                        Color.White.copy(alpha = 0.35f)
-                    )
-                ),
-                shape = RoundedCornerShape(26.dp)
+                color = Color.White.copy(alpha = 0.20f),
+                shape = RoundedCornerShape(23.dp)
             )
             .pointerInput(currentZoom) {
                 detectHorizontalDragGestures(
                     onDragStart = { isDragging = true },
                     onDragEnd = { isDragging = false },
                     onDragCancel = { isDragging = false },
-                    onHorizontalDrag = { _, dragAmount ->
-                        val sensitivity = 0.025f
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        val sensitivity = 0.022f
                         val newZoom = (currentZoom + dragAmount * sensitivity).coerceIn(0.5f, 10.0f)
                         val rounded = (newZoom * 10).roundToInt() / 10f
                         onZoomChange(rounded)
                     }
                 )
             }
-            .padding(horizontal = 6.dp, vertical = 4.dp)
-            .testTag("liquid_zoom_bar"),
+            .testTag("horizontal_scrolling_zoom_bar"),
         contentAlignment = Alignment.Center
     ) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            presets.forEach { preset ->
-                val isExactMatch = (currentZoom - preset).absoluteValue < 0.18f
+            presets.forEachIndexed { index, preset ->
                 val isClosest = presets.minByOrNull { (it - currentZoom).absoluteValue } == preset
+                val isExactMatch = (currentZoom - preset).absoluteValue < 0.18f
+                val isSelected = isExactMatch || (isClosest && !isDragging)
 
-                val isHighlighted = isExactMatch || (isClosest && !isDragging)
-                val pillBg by animateColorAsState(
-                    if (isHighlighted) Color(0xFFFFD54F) else Color.Transparent,
-                    label = "zoomPillBg"
-                )
-                val textColor by animateColorAsState(
-                    if (isHighlighted) Color.Black else Color.White.copy(alpha = 0.85f),
-                    label = "zoomTextColor"
-                )
-
-                val label = when {
-                    preset == 0.5f -> ".5x"
-                    preset == 1.0f -> "1x"
-                    preset == 2.0f -> "2x"
-                    preset == 5.0f -> "5x"
-                    preset == 10.0f -> "10x"
+                val label = when (preset) {
+                    0.5f -> "0.5"
+                    1.0f -> "1x"
+                    2.0f -> "2"
+                    3.0f -> "3"
+                    10.0f -> "10"
                     else -> "${preset}x"
                 }
 
-                val displayLabel = if (isClosest && (currentZoom - preset).absoluteValue >= 0.25f) {
-                    "%.1fx".format(currentZoom)
+                val displayText = if (isClosest && (currentZoom - preset).absoluteValue >= 0.2f) {
+                    "%.1f".format(currentZoom)
                 } else {
                     label
                 }
 
+                // Preset button: Active displays as solid white circle with bold black text
                 Box(
                     modifier = Modifier
+                        .size(36.dp)
                         .clip(CircleShape)
-                        .background(pillBg)
-                        .clickable { onZoomChange(preset) }
-                        .padding(horizontal = 9.dp, vertical = 5.dp)
+                        .background(if (isSelected) Color.White else Color.Transparent)
+                        .clickable { onZoomPresetTap(preset) }
                         .testTag("zoom_preset_${preset}"),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = displayLabel,
-                        color = textColor,
-                        fontSize = 12.sp,
-                        fontWeight = if (isHighlighted) FontWeight.ExtraBold else FontWeight.Medium
+                        text = displayText,
+                        color = if (isSelected) Color.Black else Color.White,
+                        fontSize = if (displayText.length >= 4) 11.sp else 13.sp,
+                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold
                     )
+                }
+
+                // Between presets: 3 vertical divider dots
+                if (index < presets.size - 1) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        repeat(3) {
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 1.5.dp, height = 5.dp)
+                                    .clip(RoundedCornerShape(1.dp))
+                                    .background(Color.White.copy(alpha = 0.35f))
+                            )
+                        }
+                    }
                 }
             }
         }

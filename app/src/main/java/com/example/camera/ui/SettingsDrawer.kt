@@ -29,8 +29,8 @@ fun SettingsDrawer(
     isOpen: Boolean,
     cameraMode: CameraMode,
     capabilities: HardwareCapabilities,
-    availableLenses: List<LensInfo>,
-    selectedLens: LensInfo?,
+    availableLenses: List<LensInfo> = emptyList(),
+    selectedLens: LensInfo? = null,
     selectedPhotoResolution: CameraResolution?,
     selectedVideoResolution: CameraResolution?,
     videoFps: Int,
@@ -41,8 +41,8 @@ fun SettingsDrawer(
     saveSelfieAsPreviewed: Boolean = true,
     hdrState: com.example.camera.model.VideoHdrState = com.example.camera.model.VideoHdrState(),
     viewfinderResolution: ViewfinderResolution = ViewfinderResolution.NORMAL,
-    onLensSelected: (LensInfo) -> Unit,
-    onForceDeepScan: () -> Unit,
+    onLensSelected: (LensInfo) -> Unit = {},
+    onForceDeepScan: () -> Unit = {},
     onPhotoResolutionSelected: (CameraResolution) -> Unit,
     onVideoResolutionSelected: (CameraResolution) -> Unit,
     onViewfinderResolutionSelected: (ViewfinderResolution) -> Unit = {},
@@ -94,105 +94,6 @@ fun SettingsDrawer(
                             contentDescription = "Close",
                             tint = Color.White.copy(alpha = 0.7f)
                         )
-                    }
-                }
-            }
-
-            // Section: Deep Lens Scanner & Sensor Diagnostics
-            item {
-                SettingsSectionHeader(title = "Physical & Auxiliary Lenses (${availableLenses.size} Detected)")
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = onForceDeepScan,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFFFD54F),
-                            contentColor = Color.Black
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("force_deep_scan_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Force Deep Find All Hidden Lenses",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-
-                    availableLenses.forEach { lens ->
-                        val isSelected = selectedLens?.id == lens.id || (
-                            selectedLens?.cameraId == lens.cameraId &&
-                            selectedLens?.isZoomPreset == lens.isZoomPreset &&
-                            selectedLens?.baseZoomRatio == lens.baseZoomRatio &&
-                            selectedLens?.lensType == lens.lensType
-                        )
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isSelected) Color(0xFFFFD54F).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (isSelected) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.1f)
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { onLensSelected(lens) }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = lens.displayName,
-                                            color = if (isSelected) Color(0xFFFFD54F) else Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = if (lens.lensType == LensType.ULTRAWIDE) Color(0xFF00E676).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)
-                                        ) {
-                                            Text(
-                                                text = lens.idTypeDescription,
-                                                color = if (lens.lensType == LensType.ULTRAWIDE) Color(0xFF00E676) else Color.White.copy(alpha = 0.7f),
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                    Text(
-                                        text = "Focal: %.1fmm · Equiv: %.0fmm · FOV: %.0f° · Max Aperture: f/%.1f".format(
-                                            lens.focalLengthMm,
-                                            lens.equivalent35mmFocalMm,
-                                            lens.fovDegrees,
-                                            lens.maxAperture
-                                        ),
-                                        color = Color.White.copy(alpha = 0.5f),
-                                        fontSize = 11.sp
-                                    )
-                                }
-                                if (isSelected) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = "Active Lens",
-                                        tint = Color(0xFFFFD54F),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
             }

@@ -87,6 +87,9 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val _isSettingsOpen = MutableStateFlow(false)
     val isSettingsOpen: StateFlow<Boolean> = _isSettingsOpen.asStateFlow()
 
+    private val _isVideoSettingsPanelOpen = MutableStateFlow(false)
+    val isVideoSettingsPanelOpen: StateFlow<Boolean> = _isVideoSettingsPanelOpen.asStateFlow()
+
     private val _isMediaViewerOpen = MutableStateFlow(false)
     val isMediaViewerOpen: StateFlow<Boolean> = _isMediaViewerOpen.asStateFlow()
 
@@ -201,6 +204,12 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         engine.setVideoHdrManualIntensity(preferences.videoHdrManualIntensity)
         engine.setMode(preferences.cameraMode)
         engine.selectVideoResolution(CameraResolution(preferences.videoWidth, preferences.videoHeight))
+
+        viewModelScope.launch {
+            engine.currentZoomState.collect { zoom ->
+                _currentZoom.value = zoom
+            }
+        }
 
         // Sequential background portrait processor
         // Processes portrait jobs safely one by one in the background without UI blocking,
@@ -492,9 +501,10 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         showToast(if (next) "Focus Locked" else "Focus Unlocked")
     }
 
-    fun setZoom(zoom: Float) {
-        _currentZoom.value = zoom
-        engine.setZoom(zoom)
+    fun setZoom(zoom: Float, isPresetTap: Boolean = false) {
+        val clamped = zoom.coerceIn(0.5f, 10.0f)
+        _currentZoom.value = clamped
+        engine.setZoom(clamped, isPresetTap)
     }
 
     fun setVideoStabilization(enabled: Boolean) {
@@ -561,6 +571,14 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setSettingsOpen(open: Boolean) {
         _isSettingsOpen.value = open
+    }
+
+    fun setVideoSettingsPanelOpen(open: Boolean) {
+        _isVideoSettingsPanelOpen.value = open
+    }
+
+    fun toggleVideoSettingsPanel() {
+        _isVideoSettingsPanelOpen.value = !_isVideoSettingsPanelOpen.value
     }
 
     fun setMediaViewerOpen(open: Boolean) {

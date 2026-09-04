@@ -92,8 +92,6 @@ fun CameraScreen(
 
     // Engine & VM States
     val cameraMode by viewModel.cameraMode.collectAsStateWithLifecycle()
-    val displayedLenses by viewModel.displayedLenses.collectAsStateWithLifecycle()
-    val selectedLens by viewModel.engine.selectedLens.collectAsStateWithLifecycle()
     val capabilities by viewModel.engine.capabilities.collectAsStateWithLifecycle()
     val selectedPhotoResolution by viewModel.engine.selectedPhotoResolution.collectAsStateWithLifecycle()
     val selectedVideoResolution by viewModel.engine.selectedVideoResolution.collectAsStateWithLifecycle()
@@ -110,6 +108,7 @@ fun CameraScreen(
     val saveSelfieAsPreviewed by viewModel.saveSelfieAsPreviewed.collectAsStateWithLifecycle()
     val videoHdrState by viewModel.videoHdrState.collectAsStateWithLifecycle()
     val isVideoHdrPanelOpen by viewModel.isVideoHdrPanelOpen.collectAsStateWithLifecycle()
+    val isVideoSettingsPanelOpen by viewModel.isVideoSettingsPanelOpen.collectAsStateWithLifecycle()
 
     val flashMode by viewModel.flashMode.collectAsStateWithLifecycle()
     val timerMode by viewModel.timerMode.collectAsStateWithLifecycle()
@@ -160,7 +159,7 @@ fun CameraScreen(
                 viewModel.onTapToFocus(point, normX, normY)
             },
             onZoomChange = { zoom ->
-                viewModel.setZoom(zoom)
+                viewModel.setZoom(zoom, isPresetTap = false)
             },
             modifier = Modifier.fillMaxSize()
         )
@@ -175,8 +174,11 @@ fun CameraScreen(
             supportsRaw = capabilities.supportsRaw,
             storageStats = storageStats,
             videoQuality = currentVideoQuality,
+            videoResolution = selectedVideoResolution,
+            videoFps = videoFps,
             hdrState = videoHdrState,
             onVideoQualityClick = { viewModel.cycleVideoQuality() },
+            onVideoSettingsClick = { viewModel.toggleVideoSettingsPanel() },
             onHdrClick = { viewModel.toggleVideoHdrPanel() },
             onFlashClick = { viewModel.cycleFlashMode() },
             onTimerClick = { viewModel.cycleTimerMode() },
@@ -185,6 +187,26 @@ fun CameraScreen(
             onSettingsClick = { viewModel.setSettingsOpen(true) },
             modifier = Modifier.align(Alignment.TopCenter)
         )
+
+        // 2b. Floating Frosted Video Settings Panel (Resolution & Frame Rate)
+        if (cameraMode == CameraMode.VIDEO) {
+            FloatingVideoSettingsPanel(
+                isOpen = isVideoSettingsPanelOpen,
+                currentResolution = selectedVideoResolution,
+                currentFps = videoFps,
+                onResolutionSelected = { res ->
+                    viewModel.selectVideoResolution(res)
+                },
+                onFpsSelected = { fps ->
+                    viewModel.setVideoFps(fps)
+                },
+                onDismiss = { viewModel.setVideoSettingsPanelOpen(false) },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 56.dp)
+            )
+        }
 
         // 3. Manual Pro Control Bar (Slide-up above bottom controls in Photo/Video modes)
         if (cameraMode != CameraMode.PORTRAIT) {
@@ -337,20 +359,18 @@ fun CameraScreen(
             }
         }
 
-        // 5. Bottom Controls (Uses displayedLenses filtered strictly by active lens facing)
+        // 5. Bottom Controls
         BottomControlBar(
             cameraMode = cameraMode,
             currentZoom = currentZoom,
-            onZoomChange = { zoom -> viewModel.setZoom(zoom) },
-            availableLenses = displayedLenses,
-            selectedLens = selectedLens,
+            onZoomChange = { zoom -> viewModel.setZoom(zoom, isPresetTap = false) },
+            onZoomPresetTap = { preset -> viewModel.setZoom(preset, isPresetTap = true) },
             isRecordingVideo = isRecordingVideo,
             videoDurationSeconds = videoDurationSeconds,
             isCapturing = isCapturing,
             isManualProOpen = isManualProOpen,
             lastCapturedMedia = lastCapturedMedia,
             activeTimerCountdown = activeTimerCountdown,
-            onLensSelected = { viewModel.selectLens(it) },
             onModeSelected = { viewModel.setCameraMode(it) },
             onShutterClick = { viewModel.onMainActionButtonClick() },
             onFlipCameraClick = { viewModel.toggleCameraFacing() },
@@ -370,8 +390,6 @@ fun CameraScreen(
             isOpen = isSettingsOpen,
             cameraMode = cameraMode,
             capabilities = capabilities,
-            availableLenses = displayedLenses,
-            selectedLens = selectedLens,
             selectedPhotoResolution = selectedPhotoResolution,
             selectedVideoResolution = selectedVideoResolution,
             videoFps = videoFps,
@@ -382,8 +400,6 @@ fun CameraScreen(
             saveSelfieAsPreviewed = saveSelfieAsPreviewed,
             hdrState = videoHdrState,
             viewfinderResolution = viewfinderResolution,
-            onLensSelected = { viewModel.selectLens(it) },
-            onForceDeepScan = { viewModel.forceDeepScanLenses() },
             onPhotoResolutionSelected = { viewModel.selectPhotoResolution(it) },
             onVideoResolutionSelected = { viewModel.selectVideoResolution(it) },
             onViewfinderResolutionSelected = { viewModel.setViewfinderResolution(it) },
