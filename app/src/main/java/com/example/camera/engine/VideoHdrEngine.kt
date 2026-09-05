@@ -4,9 +4,12 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
+import android.hardware.camera2.params.ColorSpaceTransform
 import android.hardware.camera2.params.TonemapCurve
 import android.os.Build
 import android.util.Log
+import android.util.Range
+import android.util.Rational
 import com.example.camera.model.VideoHdrMode
 import com.example.camera.model.VideoHdrState
 import kotlin.math.abs
@@ -14,6 +17,7 @@ import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
+import kotlin.math.roundToInt
 
 /**
  * Real-Time Video HDR & Adaptive Noise Reduction Engine for Camera2.
@@ -48,6 +52,10 @@ class VideoHdrEngine {
                 smoothedHighlightProtect = 0f
                 smoothedContrast = 1.0f
                 smoothedNoiseReduction = 0f
+                smoothedExposureBias = 0f
+                smoothedSaturation = 1.0f
+            } else if (value == VideoHdrMode.MANUAL) {
+                applyManualParametersImmediately()
             }
             updateState()
         }
@@ -55,48 +63,56 @@ class VideoHdrEngine {
     var manualIntensity: Int = 50 // 0 to 100
         set(value) {
             field = value.coerceIn(0, 100)
+            applyManualParametersImmediately()
             updateState()
         }
 
     var manualShadows: Int = 50 // 0 to 100
         set(value) {
             field = value.coerceIn(0, 100)
+            applyManualParametersImmediately()
             updateState()
         }
 
     var manualHighlights: Int = 50 // 0 to 100
         set(value) {
             field = value.coerceIn(0, 100)
+            applyManualParametersImmediately()
             updateState()
         }
 
     var manualContrast: Int = 50 // 0 to 100
         set(value) {
             field = value.coerceIn(0, 100)
+            applyManualParametersImmediately()
             updateState()
         }
 
     var manualExposure: Int = 50 // 0 to 100
         set(value) {
             field = value.coerceIn(0, 100)
+            applyManualParametersImmediately()
             updateState()
         }
 
     var manualBlackLevel: Int = 50 // 0 to 100
         set(value) {
             field = value.coerceIn(0, 100)
+            applyManualParametersImmediately()
             updateState()
         }
 
     var manualMidtones: Int = 50 // 0 to 100
         set(value) {
             field = value.coerceIn(0, 100)
+            applyManualParametersImmediately()
             updateState()
         }
 
     var manualSaturation: Int = 50 // 0 to 100
         set(value) {
             field = value.coerceIn(0, 100)
+            applyManualParametersImmediately()
             updateState()
         }
 
@@ -120,6 +136,11 @@ class VideoHdrEngine {
     private var isMotionDetected: Boolean = false
 
     // Hardware capability cache
+    var aeCompensationRange: Range<Int> = Range(-12, 12)
+        private set
+    var aeCompensationStep: Float = 0.333f
+        private set
+    private var supportsColorCorrection: Boolean = false
     private var supportsContrastCurve: Boolean = false
     private var supportsGammaValue: Boolean = false
     private var supportsSceneHdr: Boolean = false
@@ -131,6 +152,27 @@ class VideoHdrEngine {
     private val curveRed = FloatArray(CURVE_POINTS * 2)
     private val curveGreen = FloatArray(CURVE_POINTS * 2)
     private val curveBlue = FloatArray(CURVE_POINTS * 2)
+
+    private fun applyManualParametersImmediately() {
+        if (mode != VideoHdrMode.MANUAL) return
+        val master = manualIntensity / 100f
+        val shadowFactor = (manualShadows / 50f)
+        val highlightFactor = (manualHighlights / 50f)
+        val contrastDelta = (manualContrast - 50) / 50f
+        val expDelta = (manualExposure - 50) / 50f
+        val blackDelta = (manualBlackLevel - 50) / 50f
+        val midDelta = (manualMidtones - 50) / 50f
+        val satFactor = (manualSaturation / 50f)
+
+        smoothedShadowLift = (master * 0.70f * shadowFactor).coerceIn(0f, 1.4f)
+        smoothedHighlightProtect = (master * 0.60f * highlightFactor).coerceIn(0f, 1.4f)
+        smoothedContrast = (1.0f + (master * 0.25f) + (contrastDelta * 0.35f)).coerceIn(0.6f, 1.8f)
+        smoothedExposureBias = expDelta * 0.40f
+        smoothedBlackLevel = blackDelta * 0.15f
+        smoothedMidtones = midDelta * 0.30f
+        smoothedSaturation = satFactor.coerceIn(0f, 2.2f)
+        smoothedNoiseReduction = ((smoothedIso - 200f) / 3000f).coerceIn(0.1f, 1.0f)
+    }
 
     // Public State for UI observation
     var currentState: VideoHdrState = VideoHdrState()
@@ -156,8 +198,20 @@ class VideoHdrEngine {
         val edgeModes = chars.get(CameraCharacteristics.EDGE_AVAILABLE_EDGE_MODES) ?: intArrayOf()
         supportsHighQualityEdge = edgeModes.contains(CameraCharacteristics.EDGE_MODE_HIGH_QUALITY)
 
+        aeCompensationRange = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE) ?: Range(-12, 12)
+        val step = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)?.toFloat() ?: 0.333f
+        aeCompensationStep = if (step > 0f) step else 0.333f
+
+        val colorModes = chars.get(CameraCharacteristics.COLOR_CORRECTION_AVAILABLE_MODES) ?: intArrayOf()
+        supportsColorCorrection = colorModes.contains(CameraCharacteristics.COLOR_CORRECTION_MODE_FAST) ||
+                colorModes.contains(CameraCharacteristics.COLOR_CORRECTION_MODE_HIGH_QUALITY)
+
         Log.d(TAG, "Configured: contrastCurve=$supportsContrastCurve, gamma=$supportsGammaValue, " +
-                "sceneHdr=$supportsSceneHdr, hqNr=$supportsHighQualityNr, hqEdge=$supportsHighQualityEdge")
+                "sceneHdr=$supportsSceneHdr, hqNr=$supportsHighQualityNr, hqEdge=$supportsHighQualityEdge, " +
+                "aeRange=$aeCompensationRange, aeStep=$aeCompensationStep, colorCorr=$supportsColorCorrection")
+        if (mode == VideoHdrMode.MANUAL) {
+            applyManualParametersImmediately()
+        }
         updateState()
     }
 
@@ -360,6 +414,7 @@ class VideoHdrEngine {
     fun applyToCaptureRequest(builder: CaptureRequest.Builder) {
         if (mode == VideoHdrMode.OFF) {
             // Restore default linear tonemapping and fast noise reduction
+            builder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
             builder.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_FAST)
             builder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_FAST)
             builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_FAST)
@@ -369,10 +424,56 @@ class VideoHdrEngine {
             return
         }
 
-        // 1. Hardware Scene Mode HDR (if supported by device)
-        if (supportsSceneHdr) {
-            builder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_USE_SCENE_MODE)
-            builder.set(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_HDR)
+        // 1. Scene Mode / AE Compensation Handling
+        if (mode == VideoHdrMode.AUTO) {
+            if (supportsSceneHdr) {
+                builder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_USE_SCENE_MODE)
+                builder.set(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_HDR)
+            } else {
+                builder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+            }
+        } else {
+            // MANUAL mode: Keep CONTROL_MODE_AUTO so manual curves, exposure compensation, and color transforms apply directly!
+            builder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+            if (supportsSceneHdr) {
+                builder.set(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_DISABLED)
+            }
+
+            // Real Hardware AE Exposure Compensation (Physically brightens/darkens real camera sensor!)
+            val targetEv = (smoothedExposureBias * 3.5f) + (smoothedShadowLift * 0.35f)
+            val compSteps = (targetEv / aeCompensationStep).roundToInt()
+                .coerceIn(aeCompensationRange.lower, aeCompensationRange.upper)
+            builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, compSteps)
+
+            // Real Color Correction Saturation Matrix (Visually saturates/desaturates in real time!)
+            if (supportsColorCorrection) {
+                val sat = smoothedSaturation.coerceIn(0f, 2.2f)
+                val rW = 0.299f
+                val gW = 0.587f
+                val bW = 0.114f
+
+                val m00 = ((rW + (1f - rW) * sat) * 256).roundToInt().coerceIn(-1000, 1000)
+                val m01 = ((gW * (1f - sat)) * 256).roundToInt().coerceIn(-1000, 1000)
+                val m02 = ((bW * (1f - sat)) * 256).roundToInt().coerceIn(-1000, 1000)
+
+                val m10 = ((rW * (1f - sat)) * 256).roundToInt().coerceIn(-1000, 1000)
+                val m11 = ((gW + (1f - gW) * sat) * 256).roundToInt().coerceIn(-1000, 1000)
+                val m12 = ((bW * (1f - sat)) * 256).roundToInt().coerceIn(-1000, 1000)
+
+                val m20 = ((rW * (1f - sat)) * 256).roundToInt().coerceIn(-1000, 1000)
+                val m21 = ((gW * (1f - sat)) * 256).roundToInt().coerceIn(-1000, 1000)
+                val m22 = ((bW + (1f - bW) * sat) * 256).roundToInt().coerceIn(-1000, 1000)
+
+                val transform = ColorSpaceTransform(
+                    intArrayOf(
+                        m00, 256, m01, 256, m02, 256,
+                        m10, 256, m11, 256, m12, 256,
+                        m20, 256, m21, 256, m22, 256
+                    )
+                )
+                builder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_FAST)
+                builder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, transform)
+            }
         }
 
         // 2. Dynamic HDR Tonemap S-Curve Synthesis

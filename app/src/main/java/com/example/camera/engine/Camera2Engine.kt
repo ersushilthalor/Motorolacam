@@ -708,8 +708,8 @@ class Camera2Engine(private val context: Context) {
             return
         }
 
-        // If same physical camera ID, update zoom without restarting camera hardware
-        if (previousLens?.cameraId == lens.cameraId && cameraDevice != null) {
+        // If same physical camera ID and same facing, update zoom without restarting camera hardware
+        if (previousLens?.cameraId == lens.cameraId && previousLens?.facing == lens.facing && cameraDevice != null) {
             updatePreviewSettings()
             return
         }
@@ -905,11 +905,7 @@ class Camera2Engine(private val context: Context) {
             imageReaderJpeg?.surface?.let { surfaces.add(it) }
             imageReaderRaw?.surface?.let { surfaces.add(it) }
 
-            val template = if (currentMode == CameraMode.VIDEO) {
-                CameraDevice.TEMPLATE_RECORD
-            } else {
-                CameraDevice.TEMPLATE_PREVIEW
-            }
+            val template = CameraDevice.TEMPLATE_PREVIEW
 
             previewRequestBuilder = camera.createCaptureRequest(template).apply {
                 addTarget(previewSurf)
@@ -1242,8 +1238,17 @@ class Camera2Engine(private val context: Context) {
 
         val currentLens = _selectedLens.value ?: return
 
-        // If front selfie camera, apply digital zoom on active stream
+        // If front selfie camera, apply digital zoom on active stream,
+        // or switch to rear lens if user explicitly tapped a rear zoom preset (.5x or 1x)
         if (currentLens.facing == CameraCharacteristics.LENS_FACING_FRONT) {
+            if (isPresetTap && (clampedZoom < 0.95f || clampedZoom in 0.95f..1.1f)) {
+                val backLenses = _availableLenses.value.filter { it.facing == CameraCharacteristics.LENS_FACING_BACK }
+                val backTarget = backLenses.firstOrNull { if (clampedZoom < 0.95f) it.lensType == LensType.ULTRAWIDE else it.lensType == LensType.WIDE }
+                if (backTarget != null) {
+                    selectLens(backTarget)
+                    return
+                }
+            }
             updatePreviewSettings()
             return
         }
@@ -1988,7 +1993,9 @@ class Camera2Engine(private val context: Context) {
                     return@synchronized
                 }
                 closeCameraInternal()
-                startCamera()
+                backgroundHandler?.postDelayed({
+                    startCamera()
+                }, 75)
             }
         } ?: run {
             closeCamera()

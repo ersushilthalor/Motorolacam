@@ -1,8 +1,15 @@
 package com.example.camera.ui
 
+import android.hardware.camera2.CameraCharacteristics
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -19,6 +26,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +50,9 @@ import kotlin.math.roundToInt
 fun BottomControlBar(
     cameraMode: CameraMode,
     currentZoom: Float = 1.0f,
+    displayedLenses: List<LensInfo> = emptyList(),
+    selectedLens: LensInfo? = null,
+    onLensSelected: (LensInfo) -> Unit = {},
     onZoomChange: (Float) -> Unit = {},
     onZoomPresetTap: (Float) -> Unit = onZoomChange,
     isRecordingVideo: Boolean,
@@ -57,6 +68,7 @@ fun BottomControlBar(
     onGalleryClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var isZoomBarExpanded by rememberSaveable { mutableStateOf(false) }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -137,13 +149,64 @@ fun BottomControlBar(
             }
         }
 
-        // Horizontally Scrolling Liquid Transparent Zoom Bar (.5x to 10x, ultra-smooth)
-        HorizontalScrollingZoomBar(
-            currentZoom = currentZoom,
-            onZoomChange = onZoomChange,
-            onZoomPresetTap = onZoomPresetTap,
-            modifier = Modifier.testTag("horizontal_scrolling_zoom_bar_container")
-        )
+        // Classic Lens Switcher / Expandable Smooth Zoom Bar
+        AnimatedContent(
+            targetState = isZoomBarExpanded,
+            transitionSpec = {
+                (fadeIn() + expandVertically()).togetherWith(fadeOut() + shrinkVertically())
+            },
+            label = "lensSwitchOrZoomBar"
+        ) { expanded ->
+            if (expanded) {
+                // Expanded zoom slider with close button
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        HorizontalScrollingZoomBar(
+                            currentZoom = currentZoom,
+                            onZoomChange = onZoomChange,
+                            onZoomPresetTap = { preset ->
+                                onZoomPresetTap(preset)
+                                isZoomBarExpanded = false
+                            },
+                            modifier = Modifier.testTag("horizontal_scrolling_zoom_bar_container")
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    IconButton(
+                        onClick = { isZoomBarExpanded = false },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xB21E1E24))
+                            .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape)
+                            .testTag("close_zoom_bar_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Collapse zoom slider",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            } else {
+                // Classic Lens Switcher Pills Row (Tap active pill opens zoom bar!)
+                ClassicLensSwitcher(
+                    currentZoom = currentZoom,
+                    displayedLenses = displayedLenses,
+                    selectedLens = selectedLens,
+                    onLensSelected = onLensSelected,
+                    onZoomPresetTap = onZoomPresetTap,
+                    onOpenZoomBar = { isZoomBarExpanded = true },
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
+        }
 
         // Bottom Mode Switcher (PHOTO / VIDEO)
         if (!isRecordingVideo) {
@@ -435,6 +498,120 @@ fun HorizontalScrollingZoomBar(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Classic lens switcher pill row:
+ * - Shows .5, 1x, 2, 3 circular pills matching stock camera UI
+ * - Tapping an inactive pill switches lens immediately (physical camera switch)
+ * - Tapping the already active pill opens the zoom bar
+ */
+@Composable
+fun ClassicLensSwitcher(
+    currentZoom: Float,
+    displayedLenses: List<LensInfo>,
+    selectedLens: LensInfo?,
+    onLensSelected: (LensInfo) -> Unit,
+    onZoomPresetTap: (Float) -> Unit,
+    onOpenZoomBar: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isFrontCamera = selectedLens?.facing == CameraCharacteristics.LENS_FACING_FRONT
+
+    val hasTele3x = displayedLenses.any { it.lensType == LensType.TELEPHOTO_3X }
+    val presets = if (isFrontCamera) {
+        listOf(1.0f)
+    } else if (hasTele3x) {
+        listOf(0.5f, 1.0f, 2.0f, 3.0f)
+    } else {
+        listOf(0.5f, 1.0f, 2.0f)
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color(0xB2141418))
+            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(22.dp))
+            .padding(horizontal = 4.dp, vertical = 3.dp)
+            .testTag("classic_lens_switcher_container"),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            presets.forEach { preset ->
+                val isActive = when {
+                    preset == 0.5f -> currentZoom < 0.85f
+                    preset == 1.0f -> if (isFrontCamera) true else (currentZoom in 0.85f..1.75f)
+                    preset == 2.0f -> if (hasTele3x) (currentZoom in 1.75f..2.5f) else (currentZoom >= 1.75f)
+                    preset == 3.0f -> currentZoom >= 2.5f
+                    else -> false
+                }
+
+                val label = when {
+                    preset == 0.5f -> ".5"
+                    preset == 1.0f -> {
+                        if (isActive && !isFrontCamera && (currentZoom - 1.0f).absoluteValue >= 0.15f) {
+                            "%.1fx".format(currentZoom)
+                        } else "1x"
+                    }
+                    preset == 2.0f -> {
+                        if (isActive && (currentZoom - 2.0f).absoluteValue >= 0.15f) {
+                            "%.1fx".format(currentZoom)
+                        } else "2"
+                    }
+                    preset == 3.0f -> {
+                        if (isActive && (currentZoom - 3.0f).absoluteValue >= 0.15f) {
+                            "%.1fx".format(currentZoom)
+                        } else "3"
+                    }
+                    else -> "%.1fx".format(preset)
+                }
+
+                val targetLens = when (preset) {
+                    0.5f -> displayedLenses.firstOrNull { it.lensType == LensType.ULTRAWIDE }
+                    1.0f -> displayedLenses.firstOrNull { it.lensType == LensType.WIDE && !it.isZoomPreset }
+                    2.0f -> displayedLenses.firstOrNull { it.lensType == LensType.TELEPHOTO }
+                    3.0f -> displayedLenses.firstOrNull { it.lensType == LensType.TELEPHOTO_3X }
+                    else -> null
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(if (isActive) Color(0xFF2E2E34) else Color.Transparent)
+                        .border(
+                            width = if (isActive) 1.5.dp else 0.dp,
+                            color = if (isActive) Color(0xFFFFD54F) else Color.Transparent,
+                            shape = CircleShape
+                        )
+                        .clickable {
+                            if (isActive) {
+                                onOpenZoomBar()
+                            } else {
+                                if (targetLens != null) {
+                                    onLensSelected(targetLens)
+                                } else {
+                                    onZoomPresetTap(preset)
+                                }
+                            }
+                        }
+                        .testTag("lens_pill_${(preset * 10).roundToInt()}"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        color = if (isActive) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.80f),
+                        fontSize = if (label.length >= 4) 10.sp else 12.sp,
+                        fontWeight = if (isActive) FontWeight.Black else FontWeight.Bold,
+                        letterSpacing = (-0.3).sp
+                    )
                 }
             }
         }

@@ -61,6 +61,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         lenses.filter { it.facing == currentFacing }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    val selectedLens: StateFlow<LensInfo?> = engine.selectedLens
+
     // Timer
     private val _timerMode = MutableStateFlow(preferences.timerMode)
     val timerMode: StateFlow<TimerMode> = _timerMode.asStateFlow()

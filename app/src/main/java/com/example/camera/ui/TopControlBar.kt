@@ -161,6 +161,54 @@ fun TopControlBar(
                             letterSpacing = 0.5.sp
                         )
                     }
+
+                    // Video HDR Top Button
+                    val isHdrActive = hdrState.mode != VideoHdrMode.OFF
+                    val hdrBorderColor = when (hdrState.mode) {
+                        VideoHdrMode.AUTO -> Color(0xFFFFD54F)
+                        VideoHdrMode.MANUAL -> Color(0xFFFFB300)
+                        VideoHdrMode.OFF -> Color.White.copy(alpha = 0.20f)
+                    }
+                    val hdrTextColor = when (hdrState.mode) {
+                        VideoHdrMode.AUTO -> Color(0xFFFFD54F)
+                        VideoHdrMode.MANUAL -> Color(0xFFFFB300)
+                        VideoHdrMode.OFF -> Color.White.copy(alpha = 0.70f)
+                    }
+                    val hdrText = when (hdrState.mode) {
+                        VideoHdrMode.AUTO -> "HDR"
+                        VideoHdrMode.MANUAL -> "HDR ${hdrState.manualIntensity}%"
+                        VideoHdrMode.OFF -> "HDR"
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (isHdrActive) hdrBorderColor.copy(alpha = 0.18f) else Color(0xB21E1E22))
+                            .border(1.dp, hdrBorderColor, RoundedCornerShape(16.dp))
+                            .clickable { onHdrClick() }
+                            .padding(horizontal = 11.dp, vertical = 6.dp)
+                            .testTag("top_video_hdr_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isHdrActive) Icons.Filled.HdrOn else Icons.Outlined.HdrOff,
+                                contentDescription = "Video HDR Mode",
+                                tint = hdrTextColor,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = hdrText,
+                                color = hdrTextColor,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                    }
                 }
 
                 // Photo Mode: RAW toggle chip (if supported)

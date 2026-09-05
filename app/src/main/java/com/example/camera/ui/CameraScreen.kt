@@ -138,6 +138,8 @@ fun CameraScreen(
     val currentVideoQuality by viewModel.currentVideoQuality.collectAsStateWithLifecycle()
     val viewfinderResolution by viewModel.viewfinderResolution.collectAsStateWithLifecycle()
     val currentZoom by viewModel.currentZoom.collectAsStateWithLifecycle()
+    val displayedLenses by viewModel.displayedLenses.collectAsStateWithLifecycle()
+    val selectedLens by viewModel.selectedLens.collectAsStateWithLifecycle()
 
     Box(
         modifier = modifier
@@ -363,6 +365,9 @@ fun CameraScreen(
         BottomControlBar(
             cameraMode = cameraMode,
             currentZoom = currentZoom,
+            displayedLenses = displayedLenses,
+            selectedLens = selectedLens,
+            onLensSelected = { lens -> viewModel.selectLens(lens) },
             onZoomChange = { zoom -> viewModel.setZoom(zoom, isPresetTap = false) },
             onZoomPresetTap = { preset -> viewModel.setZoom(preset, isPresetTap = true) },
             isRecordingVideo = isRecordingVideo,
