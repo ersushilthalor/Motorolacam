@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MovieCreation
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.camera.model.CameraMode
+import com.example.camera.model.*
 import com.example.camera.viewmodel.CameraViewModel
 
 @Composable
@@ -110,6 +111,10 @@ fun CameraScreen(
     val isVideoHdrPanelOpen by viewModel.isVideoHdrPanelOpen.collectAsStateWithLifecycle()
     val isVideoSettingsPanelOpen by viewModel.isVideoSettingsPanelOpen.collectAsStateWithLifecycle()
 
+    val cinemaConfig by viewModel.cinemaConfig.collectAsStateWithLifecycle()
+    val cinemaCapabilities by viewModel.cinemaCapabilities.collectAsStateWithLifecycle()
+    val isCinemaSettingsOpen by viewModel.isCinemaSettingsOpen.collectAsStateWithLifecycle()
+
     val flashMode by viewModel.flashMode.collectAsStateWithLifecycle()
     val timerMode by viewModel.timerMode.collectAsStateWithLifecycle()
     val activeTimerCountdown by viewModel.activeTimerCountdown.collectAsStateWithLifecycle()
@@ -166,6 +171,14 @@ fun CameraScreen(
             modifier = Modifier.fillMaxSize()
         )
 
+        // 1b. Cinema Viewfinder Assist Overlays (Waveform, Peaking, Zebras)
+        if (cameraMode == CameraMode.CINEMA) {
+            CinemaAssistOverlays(
+                cinemaConfig = cinemaConfig,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         // 2. Top Controls
         TopControlBar(
             cameraMode = cameraMode,
@@ -179,6 +192,8 @@ fun CameraScreen(
             videoResolution = selectedVideoResolution,
             videoFps = videoFps,
             hdrState = videoHdrState,
+            cinemaConfig = cinemaConfig,
+            onCinemaSettingsClick = { viewModel.toggleCinemaSettings() },
             onVideoQualityClick = { viewModel.cycleVideoQuality() },
             onVideoSettingsClick = { viewModel.toggleVideoSettingsPanel() },
             onHdrClick = { viewModel.toggleVideoHdrPanel() },
@@ -334,6 +349,51 @@ fun CameraScreen(
             )
         }
 
+        // 3d. Dedicated Cinema Mode Settings Window (matching reference image)
+        AnimatedVisibility(
+            visible = cameraMode == CameraMode.CINEMA && isCinemaSettingsOpen,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 190.dp)
+        ) {
+            CinemaSettingsWindow(
+                config = cinemaConfig,
+                capabilities = cinemaCapabilities,
+                onConfigChange = { updatedConfig ->
+                    viewModel.updateCinemaConfig(updatedConfig)
+                },
+                onDismissRequest = { viewModel.setCinemaSettingsOpen(false) },
+                modifier = Modifier.padding(horizontal = 14.dp)
+            )
+        }
+
+        // Floating button to reopen Cinema Settings when closed
+        if (cameraMode == CameraMode.CINEMA && !isCinemaSettingsOpen) {
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFF26210A).copy(alpha = 0.85f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD54F)),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 190.dp)
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .clickable { viewModel.setCinemaSettingsOpen(true) }
+                    .testTag("open_cinema_settings_button")
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.MovieCreation,
+                        contentDescription = "Open Cinema Settings",
+                        tint = Color(0xFFFFD54F),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+        }
+
         // 4. Toast Notification Overlay
         AnimatedVisibility(
             visible = toastMessage != null,
@@ -387,6 +447,7 @@ fun CameraScreen(
                     viewModel.showToast("No recent photos yet")
                 }
             },
+            onCinemaModeClick = { viewModel.toggleCinemaSettings() },
             modifier = Modifier.align(Alignment.BottomCenter)
         )
 

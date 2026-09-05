@@ -112,6 +112,24 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val _isVideoHdrPanelOpen = MutableStateFlow(true)
     val isVideoHdrPanelOpen: StateFlow<Boolean> = _isVideoHdrPanelOpen.asStateFlow()
 
+    // Cinema Mode State & Panel visibility
+    val cinemaConfig: StateFlow<CinemaConfig> = engine.cinemaConfig
+    val cinemaCapabilities: StateFlow<CinemaHardwareCapabilities> = engine.cinemaCapabilities
+    private val _isCinemaSettingsOpen = MutableStateFlow(true)
+    val isCinemaSettingsOpen: StateFlow<Boolean> = _isCinemaSettingsOpen.asStateFlow()
+
+    fun setCinemaSettingsOpen(isOpen: Boolean) {
+        _isCinemaSettingsOpen.value = isOpen
+    }
+
+    fun toggleCinemaSettings() {
+        _isCinemaSettingsOpen.value = !_isCinemaSettingsOpen.value
+    }
+
+    fun updateCinemaConfig(config: CinemaConfig) {
+        engine.setCinemaConfig(config)
+    }
+
     // Background Sequential Queue for Portrait Processing
     // Strictly queues portrait captures sequentially to prevent duplicate processing,
     // memory spikes, and crashes during rapid multi-photo captures.
@@ -332,6 +350,9 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         _cameraMode.value = mode
         preferences.cameraMode = mode
         engine.setMode(mode)
+        if (mode == CameraMode.CINEMA) {
+            _isCinemaSettingsOpen.value = true
+        }
     }
 
     fun selectLens(lens: LensInfo) {
@@ -630,7 +651,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         when (_cameraMode.value) {
             CameraMode.PHOTO -> triggerPhotoCapture()
             CameraMode.PORTRAIT -> triggerPortraitCapture()
-            CameraMode.VIDEO -> triggerVideoCapture()
+            CameraMode.VIDEO, CameraMode.CINEMA -> triggerVideoCapture()
         }
     }
 

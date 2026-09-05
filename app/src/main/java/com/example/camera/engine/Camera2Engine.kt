@@ -15,6 +15,7 @@ import android.hardware.camera2.params.StreamConfigurationMap
 import android.media.CamcorderProfile
 import android.media.Image
 import android.media.ImageReader
+import android.media.MediaCodecInfo
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
@@ -143,6 +144,12 @@ class Camera2Engine(private val context: Context) {
     val videoHdrEngine = VideoHdrEngine()
     private val _videoHdrState = MutableStateFlow(videoHdrEngine.currentState)
     val videoHdrState: StateFlow<VideoHdrState> = _videoHdrState.asStateFlow()
+
+    val cinemaEngine = CinemaEngine(context)
+    private val _cinemaConfig = MutableStateFlow(cinemaEngine.config)
+    val cinemaConfig: StateFlow<CinemaConfig> = _cinemaConfig.asStateFlow()
+    private val _cinemaCapabilities = MutableStateFlow(cinemaEngine.capabilities)
+    val cinemaCapabilities: StateFlow<CinemaHardwareCapabilities> = _cinemaCapabilities.asStateFlow()
 
     init {
         videoHdrEngine.onStateChangedListener = { state ->
@@ -653,6 +660,9 @@ class Camera2Engine(private val context: Context) {
 
             _capabilities.value = hardwareCaps
 
+            cinemaEngine.onCameraConfigured(chars, filteredVideoResolutions)
+            _cinemaCapabilities.value = cinemaEngine.capabilities
+
             // Default resolutions
             if (_selectedPhotoResolution.value == null || !photoResolutions.contains(_selectedPhotoResolution.value)) {
                 _selectedPhotoResolution.value = photoResolutions.firstOrNull()
@@ -669,8 +679,12 @@ class Camera2Engine(private val context: Context) {
     }
 
     private fun updatePreviewAspectRatio() {
-        if (currentMode == CameraMode.VIDEO) {
-            val res = _selectedVideoResolution.value
+        if (currentMode == CameraMode.VIDEO || currentMode == CameraMode.CINEMA) {
+            val res = if (currentMode == CameraMode.CINEMA && cinemaConfig.value.selectedResolution != null) {
+                cinemaConfig.value.selectedResolution
+            } else {
+                _selectedVideoResolution.value
+            }
             if (res != null && res.height > 0) {
                 val w = max(res.width, res.height).toFloat()
                 val h = min(res.width, res.height).toFloat()
@@ -737,7 +751,7 @@ class Camera2Engine(private val context: Context) {
     }
 
     /**
-     * Switch between Photo, Portrait & Video modes
+     * Switch between Photo, Portrait, Video & Cinema modes
      */
     fun setMode(mode: CameraMode) {
         if (currentMode == mode) return
@@ -748,8 +762,22 @@ class Camera2Engine(private val context: Context) {
         }
         currentMode = mode
         updatePreviewAspectRatio()
-        if (!wasPhotoOrPortrait || !isPhotoOrPortrait) {
+        if (wasPhotoOrPortrait != isPhotoOrPortrait) {
             restartCamera()
+        } else {
+            updatePreviewSettings()
+        }
+    }
+
+    /**
+     * Update Cinema Mode configuration and immediately apply to hardware ISP
+     */
+    fun setCinemaConfig(newConfig: CinemaConfig) {
+        cinemaEngine.config = newConfig
+        _cinemaConfig.value = newConfig
+        if (currentMode == CameraMode.CINEMA) {
+            updatePreviewAspectRatio()
+            updatePreviewSettings()
         }
     }
 
@@ -1078,8 +1106,10 @@ class Camera2Engine(private val context: Context) {
             }
         }
 
-        // Real-time Video HDR & Adaptive Noise Reduction
-        if (currentMode == CameraMode.VIDEO) {
+        // Real-time Video HDR & Dedicated Cinema Log Color Profile
+        if (currentMode == CameraMode.CINEMA) {
+            cinemaEngine.applyToCaptureRequest(builder)
+        } else if (currentMode == CameraMode.VIDEO) {
             videoHdrEngine.applyToCaptureRequest(builder)
         }
 
@@ -1621,8 +1651,20 @@ class Camera2Engine(private val context: Context) {
         try {
             closeCameraCaptureSession()
 
-            val videoRes = _selectedVideoResolution.value ?: CameraResolution(1920, 1080)
-            val bitrate = if (videoBitrateOption.bps > 0) {
+            val isCinema = (currentMode == CameraMode.CINEMA)
+            val videoRes = if (isCinema && cinemaConfig.value.selectedResolution != null) {
+                cinemaConfig.value.selectedResolution!!
+            } else {
+                _selectedVideoResolution.value ?: CameraResolution(1920, 1080)
+            }
+            val is10BitRequested = isCinema && cinemaConfig.value.logBitDepth == LogBitDepth.BIT_10 && cinemaCapabilities.value.supports10BitRecording
+            val bitrate = if (is10BitRequested) {
+                when {
+                    videoRes.width >= 3840 -> 75_000_000
+                    videoRes.width >= 1920 -> 40_000_000
+                    else -> 20_000_000
+                }
+            } else if (videoBitrateOption.bps > 0) {
                 videoBitrateOption.bps
             } else {
                 when {
@@ -1631,9 +1673,11 @@ class Camera2Engine(private val context: Context) {
                     else -> 10_000_000
                 }
             }
+            val targetFps = if (isCinema) cinemaConfig.value.videoFps else videoFps
 
             val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            val fileName = "VID_$timeStamp.mp4"
+            val prefix = if (isCinema) "CINEMA_" else "VID_"
+            val fileName = "${prefix}$timeStamp.mp4"
 
             val contentValues = ContentValues().apply {
                 put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
@@ -1668,9 +1712,23 @@ class Camera2Engine(private val context: Context) {
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setOutputFile(fd)
                 setVideoEncodingBitRate(bitrate)
-                setVideoFrameRate(videoFps)
+                setVideoFrameRate(targetFps)
                 setVideoSize(videoRes.width, videoRes.height)
-                setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+                if (is10BitRequested) {
+                    setVideoEncoder(MediaRecorder.VideoEncoder.HEVC)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        try {
+                            setVideoEncodingProfileLevel(
+                                MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10,
+                                MediaCodecInfo.CodecProfileLevel.HEVCMainTierLevel51
+                            )
+                        } catch (e: Exception) {
+                            Log.w(TAG, "HEVC Main 10 profile level fallback", e)
+                        }
+                    }
+                } else {
+                    setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+                }
                 if (isAudioEnabled) {
                     setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                     setAudioSamplingRate(48000)

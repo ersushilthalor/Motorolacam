@@ -6,7 +6,8 @@ import android.util.Size
 enum class CameraMode(val title: String) {
     PHOTO("Photo"),
     PORTRAIT("Portrait"),
-    VIDEO("Video")
+    VIDEO("Video"),
+    CINEMA("Cinema")
 }
 
 data class PortraitConfig(

@@ -66,6 +66,7 @@ fun BottomControlBar(
     onFlipCameraClick: () -> Unit,
     onToggleProClick: () -> Unit,
     onGalleryClick: () -> Unit,
+    onCinemaModeClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var isZoomBarExpanded by rememberSaveable { mutableStateOf(false) }
@@ -229,7 +230,13 @@ fun BottomControlBar(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable { onModeSelected(mode) }
+                            .clickable {
+                                if (isSelected && mode == CameraMode.CINEMA) {
+                                    onCinemaModeClick?.invoke()
+                                } else {
+                                    onModeSelected(mode)
+                                }
+                            }
                             .padding(horizontal = 16.dp, vertical = 6.dp)
                             .testTag("mode_${mode.name.lowercase()}"),
                         contentAlignment = Alignment.Center
@@ -327,8 +334,8 @@ fun BottomControlBar(
                             )
                         }
                     }
-                    CameraMode.VIDEO -> {
-                        // Video Record Button
+                    CameraMode.VIDEO, CameraMode.CINEMA -> {
+                        // Video / Cinema Record Button
                         if (isRecordingVideo) {
                             // Stop square
                             Box(

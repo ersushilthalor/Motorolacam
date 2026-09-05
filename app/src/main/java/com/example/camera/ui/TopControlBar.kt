@@ -35,6 +35,8 @@ fun TopControlBar(
     videoResolution: CameraResolution? = null,
     videoFps: Int = 30,
     hdrState: VideoHdrState = VideoHdrState(),
+    cinemaConfig: CinemaConfig = CinemaConfig(),
+    onCinemaSettingsClick: () -> Unit = {},
     onVideoQualityClick: () -> Unit = {},
     onVideoSettingsClick: () -> Unit = {},
     onHdrClick: () -> Unit = {},
@@ -93,8 +95,28 @@ fun TopControlBar(
                     )
                 }
 
+                // Cinema quick button
+                if (cameraMode == CameraMode.CINEMA) {
+                    IconButton(
+                        onClick = onCinemaSettingsClick,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF26210A))
+                            .border(1.dp, Color(0xFFFFD54F), CircleShape)
+                            .testTag("top_cinema_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.MovieCreation,
+                            contentDescription = "Cinema Settings",
+                            tint = Color(0xFFFFD54F),
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                }
+
                 // Timer Button (Photo / Portrait Modes)
-                if (cameraMode != CameraMode.VIDEO) {
+                if (cameraMode != CameraMode.VIDEO && cameraMode != CameraMode.CINEMA) {
                     IconButton(
                         onClick = onTimerClick,
                         modifier = Modifier
@@ -204,6 +226,46 @@ fun TopControlBar(
                                 text = hdrText,
                                 color = hdrTextColor,
                                 fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                    }
+                }
+
+                // Cinema Mode: Sleek Resolution · FPS · Log Depth Pill
+                if (cameraMode == CameraMode.CINEMA) {
+                    val resLabel = when {
+                        cinemaConfig.selectedResolution?.width == 3840 || cinemaConfig.selectedResolution?.height == 3840 -> "4K"
+                        cinemaConfig.selectedResolution?.width == 1920 || cinemaConfig.selectedResolution?.height == 1920 -> "1080"
+                        else -> "4K"
+                    }
+                    val bitLabel = if (cinemaConfig.logBitDepth == LogBitDepth.BIT_10) "10-BIT" else "8-BIT"
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF26210A))
+                            .border(1.dp, Color(0xFFFFD54F), RoundedCornerShape(16.dp))
+                            .clickable { onCinemaSettingsClick() }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .testTag("cinema_resolution_fps_pill"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Movie,
+                                contentDescription = "Cinema Settings",
+                                tint = Color(0xFFFFD54F),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "$resLabel · ${cinemaConfig.videoFps} · $bitLabel",
+                                color = Color(0xFFFFD54F),
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 0.5.sp
                             )
