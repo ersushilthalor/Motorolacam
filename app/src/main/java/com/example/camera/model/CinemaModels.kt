@@ -36,6 +36,7 @@ data class CinemaConfig(
     val logBitDepth: LogBitDepth = LogBitDepth.BIT_10,
     val colorProfile: CinemaColorProfile = CinemaColorProfile.FLAT_LOG,
     val colorSpace: CinemaColorSpace = CinemaColorSpace.REC_709,
+    val isRawSensorLogPipeline: Boolean = true, // Directly processes raw sensor stream into Log, bypassing destructive consumer ISP
     val isFocusPeakingEnabled: Boolean = false,
     val isWaveformEnabled: Boolean = false,
     val zebraThreshold: ZebraThreshold = ZebraThreshold.IRE_70,
@@ -48,6 +49,7 @@ data class CinemaHardwareCapabilities(
     val supports10BitRecording: Boolean = false,
     val supportsHevc10Bit: Boolean = false,
     val supportsDynamicRangeProfiles: Boolean = false,
+    val supportsRawSensorBypass: Boolean = true,
     val supportedFpsList: List<Int> = listOf(24, 30, 60),
     val supportedResolutions: List<CameraResolution> = emptyList(),
     val isHardwareLogSupported: Boolean = false,

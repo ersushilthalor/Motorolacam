@@ -6,8 +6,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.outlined.Close
@@ -18,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -60,15 +63,18 @@ fun CinemaSettingsWindow(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .padding(horizontal = 14.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(Color(0xF216161C))
             .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
-            .padding(horizontal = 18.dp, vertical = 14.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
             .testTag("cinema_settings_window")
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 370.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // 1. Top Title with Yellow Accent Pill
@@ -342,7 +348,68 @@ fun CinemaSettingsWindow(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // RAW SENSOR LOG PIPELINE Section
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF1F1F26))
+                    .border(1.dp, Color(0xFFFFD54F).copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .testTag("cinema_raw_pipeline_card")
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(if (config.isRawSensorLogPipeline) Color(0xFFFFD54F) else Color.Gray)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "RAW SENSOR LOG PIPELINE",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.8.sp
+                        )
+                    }
+
+                    Switch(
+                        checked = config.isRawSensorLogPipeline,
+                        onCheckedChange = { onConfigChange(config.copy(isRawSensorLogPipeline = it)) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.Black,
+                            checkedTrackColor = Color(0xFFFFD54F),
+                            uncheckedThumbColor = Color.White.copy(alpha = 0.6f),
+                            uncheckedTrackColor = Color(0xFF2C2C34)
+                        ),
+                        modifier = Modifier
+                            .scale(0.75f)
+                            .testTag("cinema_raw_pipeline_switch")
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = if (config.isRawSensorLogPipeline)
+                        "Direct Raw Sensor → Log curve. Consumer edge oversharpening & noise smearing bypassed. 100 Mbps intra-frame mastering."
+                    else
+                        "Standard ISP consumer filters active (consumer sharpening & temporal denoise applied).",
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             // 4. Row 2: Focus Assist & Zebras
             Row(

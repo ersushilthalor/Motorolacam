@@ -58,6 +58,8 @@ class CinemaEngine(private val context: Context) {
     private var supportsContrastCurve: Boolean = false
     private var supportsGammaValue: Boolean = false
     private var supportsColorCorrection: Boolean = false
+    private var supportsEdgeOff: Boolean = false
+    private var supportsNoiseOff: Boolean = false
     private var tonemapMaxPoints: Int = CURVE_POINTS
 
     // Pre-allocated curve buffers for zero garbage collection during live recording
@@ -77,6 +79,12 @@ class CinemaEngine(private val context: Context) {
         val colorModes = chars.get(CameraCharacteristics.COLOR_CORRECTION_AVAILABLE_MODES) ?: intArrayOf()
         supportsColorCorrection = colorModes.contains(CameraCharacteristics.COLOR_CORRECTION_MODE_FAST) ||
                 colorModes.contains(CameraCharacteristics.COLOR_CORRECTION_MODE_HIGH_QUALITY)
+
+        val edgeModes = chars.get(CameraCharacteristics.EDGE_AVAILABLE_EDGE_MODES) ?: intArrayOf()
+        supportsEdgeOff = edgeModes.contains(CameraCharacteristics.EDGE_MODE_OFF)
+
+        val noiseModes = chars.get(CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES) ?: intArrayOf()
+        supportsNoiseOff = noiseModes.contains(CameraCharacteristics.NOISE_REDUCTION_MODE_OFF)
 
         // 1. Check Camera2 DynamicRangeProfiles (Android 13+ / API 33+)
         var dynamicRange10Bit = false
@@ -136,6 +144,7 @@ class CinemaEngine(private val context: Context) {
             supports10BitRecording = supports10Bit,
             supportsHevc10Bit = hevc10BitSupported,
             supportsDynamicRangeProfiles = dynamicRange10Bit,
+            supportsRawSensorBypass = supportsEdgeOff || supportsNoiseOff || supportsContrastCurve,
             supportedFpsList = supportedFps,
             supportedResolutions = availableVideoResolutions,
             isHardwareLogSupported = supportsContrastCurve,
@@ -191,10 +200,29 @@ class CinemaEngine(private val context: Context) {
             builder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, transform)
         }
 
-        // 3. Cinema Edge & Noise Filtering
-        // Preserve fine cinematic film grain and texture without artificial oversharpening
-        builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
-        builder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
+        // 3. Raw Sensor Stream Processing into Log:
+        // Standard video pipelines apply aggressive consumer ISP post-processing (oversharpening halos & temporal denoise smearing).
+        // For professional Cinema Log, we bypass consumer edge enhancement & noise reduction, pulling the raw sensor photodiode response directly into the logarithmic tonemap curve.
+        if (config.isRawSensorLogPipeline) {
+            if (supportsEdgeOff) {
+                builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_OFF)
+            } else {
+                builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_FAST)
+            }
+
+            if (supportsNoiseOff) {
+                builder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_OFF)
+            } else {
+                builder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_FAST)
+            }
+
+            builder.set(CaptureRequest.SHADING_MODE, CaptureRequest.SHADING_MODE_HIGH_QUALITY)
+            builder.set(CaptureRequest.HOT_PIXEL_MODE, CaptureRequest.HOT_PIXEL_MODE_FAST)
+            builder.set(CaptureRequest.DISTORTION_CORRECTION_MODE, CaptureRequest.DISTORTION_CORRECTION_MODE_OFF)
+        } else {
+            builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
+            builder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
+        }
     }
 
     /**

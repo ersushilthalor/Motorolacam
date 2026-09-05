@@ -209,45 +209,72 @@ fun BottomControlBar(
             }
         }
 
-        // Bottom Mode Switcher (PHOTO / VIDEO)
+        // Bottom Mode Switcher (PHOTO / PORTRAIT / VIDEO / CINEMA / MORE)
         if (!isRecordingVideo) {
-            Row(
-                modifier = Modifier
-                    .padding(bottom = 14.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.Black.copy(alpha = 0.4f))
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                CameraMode.entries.forEach { mode ->
-                    val isSelected = cameraMode == mode
-                    val textColor by animateColorAsState(
-                        if (isSelected) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.5f),
-                        label = "modeTextColor"
-                    )
+            val modeScrollState = rememberScrollState()
 
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable {
-                                if (isSelected && mode == CameraMode.CINEMA) {
-                                    onCinemaModeClick?.invoke()
-                                } else {
-                                    onModeSelected(mode)
-                                }
-                            }
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                            .testTag("mode_${mode.name.lowercase()}"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = mode.name,
-                            color = textColor,
-                            fontSize = 13.sp,
-                            fontWeight = if (isSelected) FontWeight.Black else FontWeight.Normal,
-                            letterSpacing = 1.sp
+            // Smoothly auto-scroll to make the selected mode fully visible
+            LaunchedEffect(cameraMode) {
+                val index = CameraMode.entries.indexOf(cameraMode)
+                if (index >= 0) {
+                    val itemEstimatedWidthPx = 220
+                    val targetScroll = (index * itemEstimatedWidthPx - 180).coerceAtLeast(0)
+                    modeScrollState.animateScrollTo(targetScroll)
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(modeScrollState)
+                        .padding(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CameraMode.entries.forEach { mode ->
+                        val isSelected = cameraMode == mode
+                        val textColor by animateColorAsState(
+                            if (isSelected) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.65f),
+                            label = "modeTextColor"
                         )
+
+                        Box(
+                            modifier = Modifier
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(22.dp))
+                                .background(if (isSelected) Color(0xFF26210A) else Color.Black.copy(alpha = 0.35f))
+                                .border(
+                                    width = if (isSelected) 1.dp else 0.dp,
+                                    color = if (isSelected) Color(0xFFFFD54F).copy(alpha = 0.85f) else Color.Transparent,
+                                    shape = RoundedCornerShape(22.dp)
+                                )
+                                .clickable {
+                                    if (isSelected && mode == CameraMode.CINEMA) {
+                                        onCinemaModeClick?.invoke()
+                                    } else {
+                                        onModeSelected(mode)
+                                    }
+                                }
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .testTag("mode_${mode.name.lowercase()}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = mode.name,
+                                color = textColor,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold,
+                                letterSpacing = 1.sp,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
                 }
             }
@@ -305,8 +332,8 @@ fun BottomControlBar(
                 )
 
                 when (cameraMode) {
-                    CameraMode.PHOTO -> {
-                        // Photo Shutter
+                    CameraMode.PHOTO, CameraMode.MORE -> {
+                        // Photo / More Shutter
                         Box(
                             modifier = Modifier
                                 .size(62.dp)

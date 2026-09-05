@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MovieCreation
+import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -114,6 +115,7 @@ fun CameraScreen(
     val cinemaConfig by viewModel.cinemaConfig.collectAsStateWithLifecycle()
     val cinemaCapabilities by viewModel.cinemaCapabilities.collectAsStateWithLifecycle()
     val isCinemaSettingsOpen by viewModel.isCinemaSettingsOpen.collectAsStateWithLifecycle()
+    val isMoreModesOpen by viewModel.isMoreModesOpen.collectAsStateWithLifecycle()
 
     val flashMode by viewModel.flashMode.collectAsStateWithLifecycle()
     val timerMode by viewModel.timerMode.collectAsStateWithLifecycle()
@@ -387,6 +389,63 @@ fun CameraScreen(
                     Icon(
                         imageVector = Icons.Filled.MovieCreation,
                         contentDescription = "Open Cinema Settings",
+                        tint = Color(0xFFFFD54F),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+        }
+
+        // 3e. Dedicated More Modes Drawer
+        MoreModesDrawer(
+            isOpen = (cameraMode == CameraMode.MORE && isMoreModesOpen),
+            onDismissRequest = { viewModel.setMoreModesOpen(false) },
+            onSelectProManual = {
+                viewModel.setMoreModesOpen(false)
+                viewModel.setCameraMode(CameraMode.PHOTO)
+                viewModel.setManualProOpen(true)
+            },
+            onSelectCinemaLog = {
+                viewModel.setMoreModesOpen(false)
+                viewModel.setCameraMode(CameraMode.CINEMA)
+            },
+            onSelectMacro = {
+                viewModel.setMoreModesOpen(false)
+                viewModel.setCameraMode(CameraMode.PHOTO)
+                viewModel.showToast("Macro Mode Active (Close Focus)")
+            },
+            onSelectNight = {
+                viewModel.setMoreModesOpen(false)
+                viewModel.setCameraMode(CameraMode.PHOTO)
+                viewModel.showToast("Night Mode Active")
+            },
+            onOpenSettings = {
+                viewModel.setMoreModesOpen(false)
+                viewModel.setSettingsOpen(true)
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 190.dp)
+        )
+
+        // Floating button to reopen More Modes Drawer when closed
+        if (cameraMode == CameraMode.MORE && !isMoreModesOpen) {
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFF26210A).copy(alpha = 0.85f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD54F)),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 190.dp)
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .clickable { viewModel.setMoreModesOpen(true) }
+                    .testTag("open_more_modes_button")
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Outlined.GridView,
+                        contentDescription = "Open More Modes",
                         tint = Color(0xFFFFD54F),
                         modifier = Modifier.size(22.dp)
                     )

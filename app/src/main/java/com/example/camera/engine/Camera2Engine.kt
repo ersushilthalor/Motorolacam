@@ -755,8 +755,8 @@ class Camera2Engine(private val context: Context) {
      */
     fun setMode(mode: CameraMode) {
         if (currentMode == mode) return
-        val wasPhotoOrPortrait = (currentMode == CameraMode.PHOTO || currentMode == CameraMode.PORTRAIT)
-        val isPhotoOrPortrait = (mode == CameraMode.PHOTO || mode == CameraMode.PORTRAIT)
+        val wasPhotoOrPortrait = (currentMode == CameraMode.PHOTO || currentMode == CameraMode.PORTRAIT || currentMode == CameraMode.MORE)
+        val isPhotoOrPortrait = (mode == CameraMode.PHOTO || mode == CameraMode.PORTRAIT || mode == CameraMode.MORE)
         if (_isRecordingVideo.value) {
             stopVideoRecording()
         }
@@ -1658,7 +1658,13 @@ class Camera2Engine(private val context: Context) {
                 _selectedVideoResolution.value ?: CameraResolution(1920, 1080)
             }
             val is10BitRequested = isCinema && cinemaConfig.value.logBitDepth == LogBitDepth.BIT_10 && cinemaCapabilities.value.supports10BitRecording
-            val bitrate = if (is10BitRequested) {
+            val bitrate = if (isCinema) {
+                when {
+                    videoRes.width >= 3840 -> 100_000_000
+                    videoRes.width >= 1920 -> 60_000_000
+                    else -> 30_000_000
+                }
+            } else if (is10BitRequested) {
                 when {
                     videoRes.width >= 3840 -> 75_000_000
                     videoRes.width >= 1920 -> 40_000_000

@@ -118,6 +118,18 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val _isCinemaSettingsOpen = MutableStateFlow(true)
     val isCinemaSettingsOpen: StateFlow<Boolean> = _isCinemaSettingsOpen.asStateFlow()
 
+    // More Modes Drawer visibility
+    private val _isMoreModesOpen = MutableStateFlow(false)
+    val isMoreModesOpen: StateFlow<Boolean> = _isMoreModesOpen.asStateFlow()
+
+    fun setMoreModesOpen(isOpen: Boolean) {
+        _isMoreModesOpen.value = isOpen
+    }
+
+    fun toggleMoreModes() {
+        _isMoreModesOpen.value = !_isMoreModesOpen.value
+    }
+
     fun setCinemaSettingsOpen(isOpen: Boolean) {
         _isCinemaSettingsOpen.value = isOpen
     }
@@ -352,6 +364,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         engine.setMode(mode)
         if (mode == CameraMode.CINEMA) {
             _isCinemaSettingsOpen.value = true
+        } else if (mode == CameraMode.MORE) {
+            _isMoreModesOpen.value = true
         }
     }
 
@@ -462,6 +476,10 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     fun toggleManualPro() {
         _isManualProOpen.value = !_isManualProOpen.value
+    }
+
+    fun setManualProOpen(open: Boolean) {
+        _isManualProOpen.value = open
     }
 
     fun setActiveProTab(tab: ProControlTab) {
@@ -649,7 +667,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     fun onMainActionButtonClick() {
         when (_cameraMode.value) {
-            CameraMode.PHOTO -> triggerPhotoCapture()
+            CameraMode.PHOTO, CameraMode.MORE -> triggerPhotoCapture()
             CameraMode.PORTRAIT -> triggerPortraitCapture()
             CameraMode.VIDEO, CameraMode.CINEMA -> triggerVideoCapture()
         }
