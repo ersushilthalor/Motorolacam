@@ -591,10 +591,15 @@ fun ClassicLensSwitcher(
                 }
 
                 val targetLens = when (preset) {
-                    0.5f -> displayedLenses.firstOrNull { it.lensType == LensType.ULTRAWIDE }
-                    1.0f -> displayedLenses.firstOrNull { it.lensType == LensType.WIDE && !it.isZoomPreset }
-                    2.0f -> displayedLenses.firstOrNull { it.lensType == LensType.TELEPHOTO }
-                    3.0f -> displayedLenses.firstOrNull { it.lensType == LensType.TELEPHOTO_3X }
+                    0.5f -> displayedLenses.firstOrNull { it.lensType == LensType.ULTRAWIDE && it.isPhysical }
+                        ?: displayedLenses.firstOrNull { it.lensType == LensType.ULTRAWIDE }
+                    1.0f -> displayedLenses.firstOrNull { it.lensType == LensType.WIDE && it.isPhysical && !it.isZoomPreset }
+                        ?: displayedLenses.firstOrNull { it.lensType == LensType.WIDE && !it.isZoomPreset }
+                    2.0f -> displayedLenses.firstOrNull { (it.lensType == LensType.TELEPHOTO || it.lensType == LensType.TELEPHOTO_3X) && it.isPhysical }
+                        ?: displayedLenses.firstOrNull { it.lensType == LensType.TELEPHOTO || it.lensType == LensType.TELEPHOTO_3X }
+                    3.0f -> displayedLenses.firstOrNull { it.lensType == LensType.TELEPHOTO_3X && it.isPhysical }
+                        ?: displayedLenses.firstOrNull { it.lensType == LensType.TELEPHOTO_3X }
+                        ?: displayedLenses.firstOrNull { it.lensType == LensType.TELEPHOTO && it.isPhysical }
                     else -> null
                 }
 

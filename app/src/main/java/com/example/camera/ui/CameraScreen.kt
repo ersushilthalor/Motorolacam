@@ -160,6 +160,8 @@ fun CameraScreen(
             focusRingPoint = focusRingPoint,
             isAeLocked = isAeLocked,
             isAfLocked = isAfLocked,
+            isFrontCamera = selectedLens?.facing == android.hardware.camera2.CameraCharacteristics.LENS_FACING_FRONT,
+            cameraMode = cameraMode,
             onSurfaceTextureAvailable = { texture ->
                 viewModel.engine.setPreviewSurfaceTexture(texture)
             },
@@ -195,6 +197,9 @@ fun CameraScreen(
             photoMegapixelMode = photoMegapixelMode,
             cinemaConfig = cinemaConfig,
             onCinemaSettingsClick = { viewModel.toggleCinemaSettings() },
+            onCinemaEvChange = { ev ->
+                viewModel.updateCinemaConfig(cinemaConfig.copy(exposureCompensation = ev))
+            },
             onVideoQualityClick = { viewModel.cycleVideoQuality() },
             onVideoSettingsClick = { viewModel.toggleVideoSettingsPanel() },
             onToggleMegapixelMode = { viewModel.togglePhotoMegapixelMode() },

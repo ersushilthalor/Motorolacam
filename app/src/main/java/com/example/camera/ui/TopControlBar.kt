@@ -38,6 +38,7 @@ fun TopControlBar(
     photoMegapixelMode: PhotoMegapixelMode = PhotoMegapixelMode.M12,
     cinemaConfig: CinemaConfig = CinemaConfig(),
     onCinemaSettingsClick: () -> Unit = {},
+    onCinemaEvChange: (Int) -> Unit = {},
     onVideoQualityClick: () -> Unit = {},
     onVideoSettingsClick: () -> Unit = {},
     onToggleMegapixelMode: () -> Unit = {},
@@ -166,7 +167,7 @@ fun TopControlBar(
                     }
                 }
 
-                // Cinema Mode: Sleek Quality Option Pill ONLY (cinema icon removed, tap here to open all cinema settings)
+                // Cinema Mode: Sleek Quality Option Pill & Real Camera2 EV Control alongside each other
                 if (cameraMode == CameraMode.CINEMA) {
                     val resLabel = when {
                         cinemaConfig.selectedResolution?.width == 3840 || cinemaConfig.selectedResolution?.height == 3840 -> "4K"
@@ -175,23 +176,69 @@ fun TopControlBar(
                     }
                     val bitLabel = if (cinemaConfig.logBitDepth == LogBitDepth.BIT_10) "10-BIT" else "8-BIT"
 
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF26210A))
-                            .border(1.dp, Color(0xFFFFD54F), RoundedCornerShape(16.dp))
-                            .clickable { onCinemaSettingsClick() }
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                            .testTag("cinema_resolution_fps_pill"),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "$resLabel · ${cinemaConfig.videoFps} · $bitLabel",
-                            color = Color(0xFFFFD54F),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
-                        )
+                        // Quality pill (Quality option hi rahna chahiye, wahi se sari setting change kar sake)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF26210A))
+                                .border(1.dp, Color(0xFFFFD54F), RoundedCornerShape(16.dp))
+                                .clickable { onCinemaSettingsClick() }
+                                .padding(horizontal = 11.dp, vertical = 6.dp)
+                                .testTag("cinema_resolution_fps_pill"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "$resLabel · ${cinemaConfig.videoFps} · $bitLabel",
+                                color = Color(0xFFFFD54F),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+
+                        // Real Camera2 EV Control Pill
+                        val evVal = cinemaConfig.exposureCompensation
+                        val evString = when {
+                            evVal > 0 -> "+${evVal / 3f}"
+                            evVal < 0 -> "${evVal / 3f}"
+                            else -> "±0.0"
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (evVal != 0) Color(0xFF382F0B) else Color(0xB21E1E22))
+                                .border(
+                                    1.dp,
+                                    if (evVal != 0) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.25f),
+                                    RoundedCornerShape(16.dp)
+                                )
+                                .clickable {
+                                    // Cycle EV step: 0 -> +1.0 (+3) -> +2.0 (+6) -> -2.0 (-6) -> -1.0 (-3) -> 0
+                                    val nextEv = when (evVal) {
+                                        0 -> 3
+                                        3 -> 6
+                                        6 -> -6
+                                        -6 -> -3
+                                        -3 -> 0
+                                        else -> 0
+                                    }
+                                    onCinemaEvChange(nextEv)
+                                }
+                                .padding(horizontal = 9.dp, vertical = 6.dp)
+                                .testTag("cinema_ev_control_pill"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "EV $evString",
+                                color = if (evVal != 0) Color(0xFFFFD54F) else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
 

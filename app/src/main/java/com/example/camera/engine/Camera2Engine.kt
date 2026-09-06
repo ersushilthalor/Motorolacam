@@ -258,11 +258,11 @@ class Camera2Engine(private val context: Context) {
                         }
 
                         val isBack = facing == CameraCharacteristics.LENS_FACING_BACK
-                        val isMain = isBack && (id == primaryBackId || eq35mm in 23.5f..38f || (focalMm in 3.2f..5.8f && eq35mm in 22f..40f))
-                        val isUltraWide = isBack && !isMain && ((eq35mm in 1.0f..23.4f) || focalMm <= 2.8f || fovDegrees >= 88.0f)
-                        val isTele3x = isBack && !isMain && (eq35mm >= 70f || focalMm >= 9.0f)
-                        val isTele2x = isBack && !isMain && (eq35mm in 45f..70f || focalMm in 5.9f..9.0f)
-                        val isMacro = isBack && !isMain && minFocus > 10f && focalMm < 3.2f
+                        val isUltraWide = isBack && ((eq35mm in 1.0f..23.4f) || focalMm <= 2.8f || fovDegrees >= 88.0f)
+                        val isTele3x = isBack && (eq35mm >= 70f || focalMm >= 9.0f)
+                        val isTele2x = isBack && !isTele3x && (eq35mm in 45f..70f || focalMm in 5.9f..9.0f)
+                        val isMacro = isBack && minFocus > 10f && focalMm < 3.2f
+                        val isMain = isBack && !isUltraWide && !isTele3x && !isTele2x && !isMacro
 
                         val lensType = when {
                             facing == CameraCharacteristics.LENS_FACING_FRONT -> LensType.FRONT
@@ -528,7 +528,7 @@ class Camera2Engine(private val context: Context) {
                         }
                     }
                     .thenBy { it.baseZoomRatio }
-                    .thenBy { if (it.isPhysical) 1 else 0 }
+                    .thenBy { if (it.isPhysical) 0 else 1 }
             )
 
             _availableLenses.value = sortedLenses
@@ -725,8 +725,13 @@ class Camera2Engine(private val context: Context) {
             return
         }
 
-        // If same physical camera ID and same facing, update zoom without restarting camera hardware
-        if (previousLens?.cameraId == lens.cameraId && previousLens?.facing == lens.facing && cameraDevice != null) {
+        // If same physical camera ID, same physicalCameraId, same lens type, and same facing, update zoom without restarting camera hardware
+        if (previousLens?.cameraId == lens.cameraId &&
+            previousLens?.physicalCameraId == lens.physicalCameraId &&
+            previousLens?.lensType == lens.lensType &&
+            previousLens?.isPhysical == lens.isPhysical &&
+            previousLens?.facing == lens.facing &&
+            cameraDevice != null) {
             updatePreviewSettings()
             return
         }
@@ -1015,8 +1020,13 @@ class Camera2Engine(private val context: Context) {
                     builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
                 }
             }
-            // Exposure compensation
-            builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, exposureCompensationIndex)
+            // Exposure compensation (apply cinema EV if in Cinema mode, or standard exposure index)
+            val evToApply = if (currentMode == CameraMode.CINEMA) {
+                cinemaConfig.value.exposureCompensation
+            } else {
+                exposureCompensationIndex
+            }
+            builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, evToApply)
             builder.set(CaptureRequest.CONTROL_AE_LOCK, isAeLocked)
         }
 

@@ -261,6 +261,56 @@ class CameraPreferences(context: Context) {
         }
         set(value) = prefs.edit().putString("pref_cinema_zebra_threshold", value.name).apply()
 
+    var cinemaShadows: Float
+        get() = prefs.getFloat("pref_cinema_shadows", 0.0f)
+        set(value) = prefs.edit().putFloat("pref_cinema_shadows", value).apply()
+
+    var cinemaHighlights: Float
+        get() = prefs.getFloat("pref_cinema_highlights", 0.0f)
+        set(value) = prefs.edit().putFloat("pref_cinema_highlights", value).apply()
+
+    var cinemaContrast: Float
+        get() = prefs.getFloat("pref_cinema_contrast", 0.0f)
+        set(value) = prefs.edit().putFloat("pref_cinema_contrast", value).apply()
+
+    var cinemaSaturation: Float
+        get() = prefs.getFloat("pref_cinema_saturation", 1.0f)
+        set(value) = prefs.edit().putFloat("pref_cinema_saturation", value).apply()
+
+    var cinemaSharpness: com.example.camera.model.CinemaSharpness
+        get() {
+            val name = prefs.getString("pref_cinema_sharpness", com.example.camera.model.CinemaSharpness.NATURAL.name)
+                ?: com.example.camera.model.CinemaSharpness.NATURAL.name
+            return try { com.example.camera.model.CinemaSharpness.valueOf(name) } catch (e: Exception) { com.example.camera.model.CinemaSharpness.NATURAL }
+        }
+        set(value) = prefs.edit().putString("pref_cinema_sharpness", value.name).apply()
+
+    var cinemaExposureCompensation: Int
+        get() = prefs.getInt("pref_cinema_ev", 0)
+        set(value) = prefs.edit().putInt("pref_cinema_ev", value).apply()
+
+    var cinemaWhiteBalance: com.example.camera.model.WhiteBalanceMode
+        get() {
+            val name = prefs.getString("pref_cinema_wb", com.example.camera.model.WhiteBalanceMode.AUTO.name)
+                ?: com.example.camera.model.WhiteBalanceMode.AUTO.name
+            return try { com.example.camera.model.WhiteBalanceMode.valueOf(name) } catch (e: Exception) { com.example.camera.model.WhiteBalanceMode.AUTO }
+        }
+        set(value) = prefs.edit().putString("pref_cinema_wb", value.name).apply()
+
+    var cinemaManualIso: Int?
+        get() {
+            val iso = prefs.getInt("pref_cinema_iso", -1)
+            return if (iso > 0) iso else null
+        }
+        set(value) = prefs.edit().putInt("pref_cinema_iso", value ?: -1).apply()
+
+    var cinemaManualShutterSpeedNs: Long?
+        get() {
+            val ns = prefs.getLong("pref_cinema_shutter", -1L)
+            return if (ns > 0) ns else null
+        }
+        set(value) = prefs.edit().putLong("pref_cinema_shutter", value ?: -1L).apply()
+
     fun getCinemaConfig(): com.example.camera.model.CinemaConfig {
         return com.example.camera.model.CinemaConfig(
             videoFps = cinemaFps,
@@ -271,7 +321,16 @@ class CameraPreferences(context: Context) {
             isRawSensorLogPipeline = cinemaIsRawSensorLogPipeline,
             isFocusPeakingEnabled = cinemaIsFocusPeakingEnabled,
             isWaveformEnabled = cinemaIsWaveformEnabled,
-            zebraThreshold = cinemaZebraThreshold
+            zebraThreshold = cinemaZebraThreshold,
+            shadows = cinemaShadows,
+            highlights = cinemaHighlights,
+            contrast = cinemaContrast,
+            saturation = cinemaSaturation,
+            sharpness = cinemaSharpness,
+            exposureCompensation = cinemaExposureCompensation,
+            whiteBalance = cinemaWhiteBalance,
+            manualIso = cinemaManualIso,
+            manualShutterSpeedNs = cinemaManualShutterSpeedNs
         )
     }
 
@@ -288,5 +347,14 @@ class CameraPreferences(context: Context) {
         cinemaIsFocusPeakingEnabled = config.isFocusPeakingEnabled
         cinemaIsWaveformEnabled = config.isWaveformEnabled
         cinemaZebraThreshold = config.zebraThreshold
+        cinemaShadows = config.shadows
+        cinemaHighlights = config.highlights
+        cinemaContrast = config.contrast
+        cinemaSaturation = config.saturation
+        cinemaSharpness = config.sharpness
+        cinemaExposureCompensation = config.exposureCompensation
+        cinemaWhiteBalance = config.whiteBalance
+        cinemaManualIso = config.manualIso
+        cinemaManualShutterSpeedNs = config.manualShutterSpeedNs
     }
 }

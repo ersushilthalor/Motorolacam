@@ -60,15 +60,15 @@ enum class GridType(val title: String) {
     LEVEL("Level Horizon")
 }
 
-enum class WhiteBalanceMode(val title: String, val camera2Mode: Int) {
-    AUTO("Auto", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_AUTO),
-    INCANDESCENT("Incandescent", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_INCANDESCENT),
-    FLUORESCENT("Fluorescent", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_FLUORESCENT),
-    WARM_FLUORESCENT("Warm Fluor", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_WARM_FLUORESCENT),
-    DAYLIGHT("Daylight", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_DAYLIGHT),
-    CLOUDY("Cloudy", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_CLOUDY_DAYLIGHT),
-    TWILIGHT("Twilight", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_TWILIGHT),
-    SHADE("Shade", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_SHADE)
+enum class WhiteBalanceMode(val title: String, val camera2Mode: Int, val shortLabel: String = title) {
+    AUTO("Auto", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_AUTO, "AUTO"),
+    INCANDESCENT("Incandescent", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_INCANDESCENT, "INC"),
+    FLUORESCENT("Fluorescent", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_FLUORESCENT, "FLR"),
+    WARM_FLUORESCENT("Warm Fluor", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_WARM_FLUORESCENT, "WARM"),
+    DAYLIGHT("Daylight", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_DAYLIGHT, "SUN"),
+    CLOUDY("Cloudy", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_CLOUDY_DAYLIGHT, "CLD"),
+    TWILIGHT("Twilight", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_TWILIGHT, "TWIL"),
+    SHADE("Shade", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_SHADE, "SHD")
 }
 
 enum class FocusMode(val title: String, val camera2Mode: Int) {

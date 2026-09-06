@@ -73,7 +73,7 @@ fun CinemaSettingsWindow(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 370.dp)
+                .heightIn(max = 480.dp)
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -656,6 +656,433 @@ fun CinemaSettingsWindow(
                         }
                     }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 6. Advanced Cinema Controls Section (Hardware ISP & Manual Controls)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(Color.White.copy(alpha = 0.12f))
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Advanced Hardware ISP",
+                        color = Color(0xFFFFD54F),
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.5.sp
+                    )
+                    Text(
+                        text = "Real Camera2 Pipeline",
+                        color = Color.White.copy(alpha = 0.60f),
+                        fontSize = 10.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Exposure Compensation (EV)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Exposure (EV)",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    val evText = when {
+                        config.exposureCompensation > 0 -> "+${config.exposureCompensation / 3f}"
+                        config.exposureCompensation < 0 -> "${config.exposureCompensation / 3f}"
+                        else -> "±0.0"
+                    }
+                    Text(
+                        text = evText,
+                        color = Color(0xFFFFD54F),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF222228))
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    val evSteps = listOf(-6, -4, -2, 0, 2, 4, 6)
+                    evSteps.forEach { step ->
+                        val isSelected = config.exposureCompensation == step
+                        val label = when {
+                            step > 0 -> "+${step / 3f}"
+                            step < 0 -> "${step / 3f}"
+                            else -> "0"
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Color(0xFFFFD54F) else Color.Transparent)
+                                .clickable {
+                                    onConfigChange(config.copy(exposureCompensation = step))
+                                }
+                                .padding(vertical = 5.dp)
+                                .testTag("cinema_ev_step_$step"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.85f),
+                                fontSize = 10.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // White Balance
+                Text(
+                    text = "White Balance",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF222228))
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    val wbModes = listOf(
+                        WhiteBalanceMode.AUTO,
+                        WhiteBalanceMode.DAYLIGHT,
+                        WhiteBalanceMode.CLOUDY,
+                        WhiteBalanceMode.INCANDESCENT,
+                        WhiteBalanceMode.FLUORESCENT
+                    )
+                    wbModes.forEach { wb ->
+                        val isSelected = config.whiteBalance == wb
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Color(0xFFFFD54F) else Color.Transparent)
+                                .clickable {
+                                    onConfigChange(config.copy(whiteBalance = wb))
+                                }
+                                .padding(vertical = 5.dp)
+                                .testTag("cinema_wb_${wb.name.lowercase()}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = wb.shortLabel,
+                                color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.85f),
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Manual ISO
+                Text(
+                    text = "ISO Sensitivity",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF222228))
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    val isoOptions = listOf(null, 100, 200, 400, 800, 1600)
+                    isoOptions.forEach { iso ->
+                        val isSelected = config.manualIso == iso
+                        val label = iso?.toString() ?: "Auto"
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Color(0xFFFFD54F) else Color.Transparent)
+                                .clickable {
+                                    onConfigChange(config.copy(manualIso = iso))
+                                }
+                                .padding(vertical = 5.dp)
+                                .testTag("cinema_iso_${label.lowercase()}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.85f),
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Manual Shutter Speed
+                Text(
+                    text = "Shutter Speed (180° Shutter Angle)",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF222228))
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    val shutterOptions = listOf(
+                        null to "Auto",
+                        (1_000_000_000L / 24L) to "1/24",
+                        (1_000_000_000L / 48L) to "1/48",
+                        (1_000_000_000L / 50L) to "1/50",
+                        (1_000_000_000L / 96L) to "1/96",
+                        (1_000_000_000L / 120L) to "1/120"
+                    )
+                    shutterOptions.forEach { (ns, label) ->
+                        val isSelected = config.manualShutterSpeedNs == ns
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Color(0xFFFFD54F) else Color.Transparent)
+                                .clickable {
+                                    onConfigChange(config.copy(manualShutterSpeedNs = ns))
+                                }
+                                .padding(vertical = 5.dp)
+                                .testTag("cinema_shutter_${label.lowercase().replace("/", "_")}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.85f),
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Sharpness (Edge Mode)
+                Text(
+                    text = "Sharpness & Texture",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF222228))
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    CinemaSharpness.entries.forEach { sharpness ->
+                        val isSelected = config.sharpness == sharpness
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Color(0xFFFFD54F) else Color.Transparent)
+                                .clickable {
+                                    onConfigChange(config.copy(sharpness = sharpness))
+                                }
+                                .padding(vertical = 6.dp)
+                                .testTag("cinema_sharpness_${sharpness.name.lowercase()}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = sharpness.label,
+                                color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.85f),
+                                fontSize = 10.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Shadows, Highlights, Contrast, Saturation Sliders
+                // Shadows
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Shadows",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = if (config.shadows == 0.0f) "0.0" else "%.1f".format(config.shadows),
+                        color = Color(0xFFFFD54F),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Slider(
+                    value = config.shadows,
+                    onValueChange = { onConfigChange(config.copy(shadows = it)) },
+                    valueRange = -1.0f..1.0f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFFFFD54F),
+                        activeTrackColor = Color(0xFFFFD54F),
+                        inactiveTrackColor = Color(0xFF33333C)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(32.dp)
+                        .testTag("cinema_slider_shadows")
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Highlights
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Highlights",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = if (config.highlights == 0.0f) "0.0" else "%.1f".format(config.highlights),
+                        color = Color(0xFFFFD54F),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Slider(
+                    value = config.highlights,
+                    onValueChange = { onConfigChange(config.copy(highlights = it)) },
+                    valueRange = -1.0f..1.0f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFFFFD54F),
+                        activeTrackColor = Color(0xFFFFD54F),
+                        inactiveTrackColor = Color(0xFF33333C)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(32.dp)
+                        .testTag("cinema_slider_highlights")
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Contrast
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Contrast",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = if (config.contrast == 0.0f) "0.0" else "%.1f".format(config.contrast),
+                        color = Color(0xFFFFD54F),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Slider(
+                    value = config.contrast,
+                    onValueChange = { onConfigChange(config.copy(contrast = it)) },
+                    valueRange = -1.0f..1.0f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFFFFD54F),
+                        activeTrackColor = Color(0xFFFFD54F),
+                        inactiveTrackColor = Color(0xFF33333C)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(32.dp)
+                        .testTag("cinema_slider_contrast")
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Saturation
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Saturation",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "%.1fx".format(config.saturation),
+                        color = Color(0xFFFFD54F),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Slider(
+                    value = config.saturation,
+                    onValueChange = { onConfigChange(config.copy(saturation = it)) },
+                    valueRange = 0.0f..2.0f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFFFFD54F),
+                        activeTrackColor = Color(0xFFFFD54F),
+                        inactiveTrackColor = Color(0xFF33333C)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(32.dp)
+                        .testTag("cinema_slider_saturation")
+                )
             }
         }
     }

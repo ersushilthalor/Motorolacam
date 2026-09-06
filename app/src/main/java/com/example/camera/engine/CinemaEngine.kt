@@ -165,51 +165,64 @@ class CinemaEngine(private val context: Context) {
      * This processes directly on ALL stream targets: both viewfinder SurfaceTexture & MediaRecorder encoder.
      */
     fun applyToCaptureRequest(builder: CaptureRequest.Builder) {
-        if (config.logBitDepth == LogBitDepth.OFF) {
-            // Log disabled: restore standard linear ISP
-            builder.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_FAST)
-            builder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_FAST)
-            return
-        }
-
         builder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
 
-        // 1. Dynamic Hardware Tonemap Curve (Genuine Optical Log Transfer)
-        if (supportsContrastCurve) {
-            val tonemapCurve = generateLogTonemapCurve(config.colorProfile)
-            builder.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_CONTRAST_CURVE)
-            builder.set(CaptureRequest.TONEMAP_CURVE, tonemapCurve)
-        } else if (supportsGammaValue) {
-            // Adaptive logarithmic gamma fallback for HALs without custom curve support
-            val logGamma = when (config.colorProfile) {
-                CinemaColorProfile.FLAT_LOG, CinemaColorProfile.S_LOG3, CinemaColorProfile.C_LOG3, CinemaColorProfile.V_LOG -> 1.55f
-                CinemaColorProfile.HLG -> 1.8f
-                CinemaColorProfile.REC_2020 -> 2.1f
-                CinemaColorProfile.REC_709 -> 2.2f
-            }
-            builder.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_GAMMA_VALUE)
-            builder.set(CaptureRequest.TONEMAP_GAMMA, logGamma)
-        } else {
-            builder.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_HIGH_QUALITY)
-        }
-
-        // 2. Hardware Color Space Matrix (Gamut Transfer)
-        if (supportsColorCorrection) {
-            val transform = generateColorSpaceTransform(config.colorSpace)
+        if (config.logBitDepth == LogBitDepth.OFF) {
+            // Log disabled: restore standard linear ISP tonemap and color correction
+            builder.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_FAST)
             builder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_FAST)
-            builder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, transform)
+        } else {
+            // 1. Dynamic Hardware Tonemap Curve (Genuine Optical Log Transfer + Shadows, Highlights, Contrast adjustments)
+            if (supportsContrastCurve) {
+                val tonemapCurve = generateLogTonemapCurve(
+                    config.colorProfile,
+                    config.shadows,
+                    config.highlights,
+                    config.contrast
+                )
+                builder.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_CONTRAST_CURVE)
+                builder.set(CaptureRequest.TONEMAP_CURVE, tonemapCurve)
+            } else if (supportsGammaValue) {
+                // Adaptive logarithmic gamma fallback for HALs without custom curve support
+                val baseGamma = when (config.colorProfile) {
+                    CinemaColorProfile.FLAT_LOG, CinemaColorProfile.S_LOG3, CinemaColorProfile.C_LOG3, CinemaColorProfile.V_LOG -> 1.55f
+                    CinemaColorProfile.HLG -> 1.8f
+                    CinemaColorProfile.REC_2020 -> 2.1f
+                    CinemaColorProfile.REC_709 -> 2.2f
+                }
+                val adjustedGamma = (baseGamma + config.contrast * 0.3f).coerceIn(1.0f, 3.0f)
+                builder.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_GAMMA_VALUE)
+                builder.set(CaptureRequest.TONEMAP_GAMMA, adjustedGamma)
+            } else {
+                builder.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_HIGH_QUALITY)
+            }
+
+            // 2. Hardware Color Space Matrix (Gamut Transfer + Saturation Scaling)
+            if (supportsColorCorrection) {
+                val transform = generateColorSpaceTransform(config.colorSpace, config.saturation)
+                builder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_FAST)
+                builder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, transform)
+            }
         }
 
-        // 3. Raw Sensor Stream Processing into Log:
-        // Standard video pipelines apply aggressive consumer ISP post-processing (oversharpening halos & temporal denoise smearing).
-        // For professional Cinema Log, we bypass consumer edge enhancement & noise reduction, pulling the raw sensor photodiode response directly into the logarithmic tonemap curve.
-        if (config.isRawSensorLogPipeline) {
-            if (supportsEdgeOff) {
-                builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_OFF)
-            } else {
+        // 3. Raw Sensor Stream Processing & Sharpness
+        when (config.sharpness) {
+            CinemaSharpness.OFF -> {
+                if (supportsEdgeOff) {
+                    builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_OFF)
+                } else {
+                    builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_FAST)
+                }
+            }
+            CinemaSharpness.NATURAL -> {
                 builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_FAST)
             }
+            CinemaSharpness.CRISP -> {
+                builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
+            }
+        }
 
+        if (config.isRawSensorLogPipeline) {
             if (supportsNoiseOff) {
                 builder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_OFF)
             } else {
@@ -220,32 +233,71 @@ class CinemaEngine(private val context: Context) {
             builder.set(CaptureRequest.HOT_PIXEL_MODE, CaptureRequest.HOT_PIXEL_MODE_FAST)
             builder.set(CaptureRequest.DISTORTION_CORRECTION_MODE, CaptureRequest.DISTORTION_CORRECTION_MODE_OFF)
         } else {
-            builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
             builder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
+        }
+
+        // 4. Real Camera2 EV (Exposure Compensation)
+        builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, config.exposureCompensation)
+
+        // 5. White Balance Mode
+        builder.set(CaptureRequest.CONTROL_AWB_MODE, config.whiteBalance.camera2Mode)
+
+        // 6. Manual ISO & Shutter Speed
+        if (config.manualIso != null || config.manualShutterSpeedNs != null) {
+            builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+            config.manualIso?.let { builder.set(CaptureRequest.SENSOR_SENSITIVITY, it) }
+            config.manualShutterSpeedNs?.let { builder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, it) }
+        } else {
+            builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
         }
     }
 
     /**
-     * Compute mathematically accurate transfer curves for cinematic Log profiles.
+     * Compute mathematically accurate transfer curves for cinematic Log profiles with Shadows, Highlights, and Contrast.
      */
-    private fun generateLogTonemapCurve(profile: CinemaColorProfile): TonemapCurve {
+    private fun generateLogTonemapCurve(
+        profile: CinemaColorProfile,
+        shadows: Float,
+        highlights: Float,
+        contrast: Float
+    ): TonemapCurve {
         val numPoints = CURVE_POINTS
         for (i in 0 until numPoints) {
             val x = i.toFloat() / (numPoints - 1).toFloat()
-            val y = evaluateLogTransferFunction(profile, x)
+            var y = evaluateLogTransferFunction(profile, x)
+
+            // 1. Contrast (S-Curve adjustment centered around middle-grey ~0.18):
+            if (contrast != 0.0f) {
+                val factor = 1.0f + (contrast * 0.4f)
+                y = 0.18f + (y - 0.18f) * factor
+            }
+
+            // 2. Shadows adjustment (affects bottom toe of curve x < 0.45):
+            if (shadows != 0.0f && x < 0.45f) {
+                val weight = (1.0f - x / 0.45f).let { it * it }
+                y += shadows * 0.15f * weight
+            }
+
+            // 3. Highlights adjustment (affects top shoulder of curve x > 0.55):
+            if (highlights != 0.0f && x > 0.55f) {
+                val weight = ((x - 0.55f) / 0.45f).let { it * it }
+                y += highlights * 0.15f * weight
+            }
+
+            val finalY = y.coerceIn(0f, 1f)
             val idx = i * 2
 
             // Red channel
             curveRed[idx] = x
-            curveRed[idx + 1] = y
+            curveRed[idx + 1] = finalY
 
             // Green channel
             curveGreen[idx] = x
-            curveGreen[idx + 1] = y
+            curveGreen[idx + 1] = finalY
 
             // Blue channel
             curveBlue[idx] = x
-            curveBlue[idx + 1] = y
+            curveBlue[idx + 1] = finalY
         }
         return TonemapCurve(curveRed, curveGreen, curveBlue)
     }
@@ -326,40 +378,44 @@ class CinemaEngine(private val context: Context) {
     }
 
     /**
-     * Compute 3x3 ColorSpaceTransform matrix for Color Gamut conversion.
+     * Compute 3x3 ColorSpaceTransform matrix for Color Gamut conversion and Saturation scaling.
      */
-    private fun generateColorSpaceTransform(colorSpace: CinemaColorSpace): ColorSpaceTransform {
-        return when (colorSpace) {
-            CinemaColorSpace.REC_709 -> {
-                // Standard ITU BT.709 identity transform
-                ColorSpaceTransform(
-                    intArrayOf(
-                        256, 256, 0, 256, 0, 256,
-                        0, 256, 256, 256, 0, 256,
-                        0, 256, 0, 256, 256, 256
-                    )
-                )
+    private fun generateColorSpaceTransform(colorSpace: CinemaColorSpace, saturation: Float = 1.0f): ColorSpaceTransform {
+        val base = when (colorSpace) {
+            CinemaColorSpace.REC_709 -> floatArrayOf(
+                1.0f, 0.0f, 0.0f,
+                0.0f, 1.0f, 0.0f,
+                0.0f, 0.0f, 1.0f
+            )
+            CinemaColorSpace.REC_2020 -> floatArrayOf(
+                160f / 256f, 76f / 256f, 20f / 256f,
+                18f / 256f, 218f / 256f, 20f / 256f,
+                8f / 256f, 32f / 256f, 216f / 256f
+            )
+            CinemaColorSpace.DCI_P3 -> floatArrayOf(
+                210f / 256f, 38f / 256f, 8f / 256f,
+                12f / 256f, 230f / 256f, 14f / 256f,
+                6f / 256f, 22f / 256f, 228f / 256f
+            )
+        }
+
+        val sat = saturation.coerceIn(0.0f, 2.0f)
+        val outRationals = IntArray(18)
+        for (row in 0..2) {
+            val lum = when (row) {
+                0 -> 0.299f
+                1 -> 0.587f
+                else -> 0.114f
             }
-            CinemaColorSpace.REC_2020 -> {
-                // Wide Gamut BT.2020 transformation matrix
-                ColorSpaceTransform(
-                    intArrayOf(
-                        160, 256, 76, 256, 20, 256,
-                        18, 256, 218, 256, 20, 256,
-                        8, 256, 32, 256, 216, 256
-                    )
-                )
-            }
-            CinemaColorSpace.DCI_P3 -> {
-                // Theatrical DCI-P3 gamut matrix
-                ColorSpaceTransform(
-                    intArrayOf(
-                        210, 256, 38, 256, 8, 256,
-                        12, 256, 230, 256, 14, 256,
-                        6, 256, 22, 256, 228, 256
-                    )
-                )
+            for (col in 0..2) {
+                val baseVal = base[row * 3 + col]
+                val satVal = (1.0f - sat) * lum + sat * baseVal
+                val num = (satVal * 256f).roundToInt().coerceIn(-1024, 1024)
+                val outIdx = (row * 3 + col) * 2
+                outRationals[outIdx] = num
+                outRationals[outIdx + 1] = 256
             }
         }
+        return ColorSpaceTransform(outRationals)
     }
 }

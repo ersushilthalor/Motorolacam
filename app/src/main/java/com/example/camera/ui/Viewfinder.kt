@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.camera.model.CameraMode
 import com.example.camera.model.GridType
 
 @Composable
@@ -43,6 +44,8 @@ fun Viewfinder(
     focusRingPoint: Offset?,
     isAeLocked: Boolean,
     isAfLocked: Boolean,
+    isFrontCamera: Boolean = false,
+    cameraMode: CameraMode = CameraMode.PHOTO,
     onSurfaceTextureAvailable: (SurfaceTexture?) -> Unit,
     onTapToFocus: (Offset, Float, Float) -> Unit,
     onZoomChange: (Float) -> Unit,
@@ -112,6 +115,15 @@ fun Viewfinder(
                         }
                         textureViewInstance = this
                     }
+                },
+                update = { textureView ->
+                    // In Video and Cinema modes on front camera:
+                    // By default, Android's SurfaceTexture automatically applies a horizontal mirror transform for front preview.
+                    // MediaRecorder, however, records the raw camera stream without mirroring.
+                    // By flipping scaleX in Video/Cinema modes, the viewfinder preview matches the unmirrored recorded video exactly:
+                    // selfie video is saved exactly as previewed, and neither is mirrored.
+                    val isFrontVideoOrCinema = isFrontCamera && (cameraMode == CameraMode.VIDEO || cameraMode == CameraMode.CINEMA)
+                    textureView.scaleX = if (isFrontVideoOrCinema) -1f else 1f
                 },
                 modifier = Modifier.fillMaxSize()
             )
