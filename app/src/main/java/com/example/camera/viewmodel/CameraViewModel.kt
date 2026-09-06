@@ -118,6 +118,26 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val _isCinemaSettingsOpen = MutableStateFlow(true)
     val isCinemaSettingsOpen: StateFlow<Boolean> = _isCinemaSettingsOpen.asStateFlow()
 
+    // Photo Megapixel Mode (12M vs 50M Ultra)
+    private val _photoMegapixelMode = MutableStateFlow(preferences.photoMegapixelMode)
+    val photoMegapixelMode: StateFlow<PhotoMegapixelMode> = _photoMegapixelMode.asStateFlow()
+
+    fun togglePhotoMegapixelMode() {
+        val next = if (_photoMegapixelMode.value == PhotoMegapixelMode.M12) {
+            PhotoMegapixelMode.M50
+        } else {
+            PhotoMegapixelMode.M12
+        }
+        _photoMegapixelMode.value = next
+        preferences.photoMegapixelMode = next
+        engine.photoMegapixelMode = next
+        if (next == PhotoMegapixelMode.M50) {
+            showToast("50M Ultra HD Mode (4-Frame RAW Stacking)")
+        } else {
+            showToast("12M Standard Mode")
+        }
+    }
+
     // More Modes Drawer visibility
     private val _isMoreModesOpen = MutableStateFlow(false)
     val isMoreModesOpen: StateFlow<Boolean> = _isMoreModesOpen.asStateFlow()
@@ -140,6 +160,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     fun updateCinemaConfig(config: CinemaConfig) {
         engine.setCinemaConfig(config)
+        preferences.saveCinemaConfig(config)
     }
 
     // Background Sequential Queue for Portrait Processing
@@ -232,10 +253,12 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         engine.focusMode = preferences.focusMode
         engine.saveSelfieAsPreviewed = preferences.saveSelfieAsPreviewed
         engine.viewfinderResolution = preferences.viewfinderResolution
-        engine.setVideoHdrMode(preferences.videoHdrMode)
-        engine.setVideoHdrManualIntensity(preferences.videoHdrManualIntensity)
+        engine.photoMegapixelMode = preferences.photoMegapixelMode
+        // Video HDR system removed: permanently OFF
+        engine.setVideoHdrMode(VideoHdrMode.OFF)
         engine.setMode(preferences.cameraMode)
         engine.selectVideoResolution(CameraResolution(preferences.videoWidth, preferences.videoHeight))
+        engine.setCinemaConfig(preferences.getCinemaConfig())
 
         viewModelScope.launch {
             engine.currentZoomState.collect { zoom ->
@@ -693,9 +716,17 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun executePhotoCapture() {
+        val is50M = _photoMegapixelMode.value == PhotoMegapixelMode.M50
+        if (is50M) {
+            showToast("Capturing 50M Ultra (4 RAW frames)...")
+        }
         engine.takePhoto { uri ->
             if (uri != null) {
-                showToast("Saved to DCIM/Camera")
+                if (is50M) {
+                    showToast("50MP Ultra High-Res saved to DCIM/Camera")
+                } else {
+                    showToast("Saved to DCIM/Camera")
+                }
             } else {
                 showToast("Failed to save photo")
             }

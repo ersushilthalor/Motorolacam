@@ -58,13 +58,13 @@ fun BottomControlBar(
     isRecordingVideo: Boolean,
     videoDurationSeconds: Int,
     isCapturing: Boolean,
-    isManualProOpen: Boolean,
+    isManualProOpen: Boolean = false,
     lastCapturedMedia: CapturedMedia?,
     activeTimerCountdown: Int?,
     onModeSelected: (CameraMode) -> Unit,
     onShutterClick: () -> Unit,
     onFlipCameraClick: () -> Unit,
-    onToggleProClick: () -> Unit,
+    onToggleProClick: () -> Unit = {},
     onGalleryClick: () -> Unit,
     onCinemaModeClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -404,23 +404,6 @@ fun BottomControlBar(
                         contentDescription = "Flip Camera",
                         tint = Color.White,
                         modifier = Modifier.size(24.dp)
-                    )
-                }
-
-                // Pro toggle small pill
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isManualProOpen) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.15f))
-                        .clickable { onToggleProClick() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                        .testTag("pro_toggle_button")
-                ) {
-                    Text(
-                        text = "PRO",
-                        color = if (isManualProOpen) Color.Black else Color.White,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Black
                     )
                 }
             }

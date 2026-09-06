@@ -231,68 +231,6 @@ fun SettingsDrawer(
                     }
                 }
 
-                // Real-Time Video HDR
-                item {
-                    SettingsSectionHeader(title = "Real-Time Video HDR")
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "Intelligently balances shadows, highlights, and contrast in real time on both live viewfinder and recorded video. Features live adaptive spatial + temporal noise reduction.",
-                            color = Color.White.copy(alpha = 0.7f),
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp
-                        )
-
-                        // Mode Selector Chips
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            com.example.camera.model.VideoHdrMode.entries.forEach { mode ->
-                                val isSelected = hdrState.mode == mode
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = { onHdrModeSelected(mode) },
-                                    label = { Text(mode.label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = Color(0xFFFFD54F),
-                                        selectedLabelColor = Color.Black,
-                                        containerColor = Color.White.copy(alpha = 0.08f),
-                                        labelColor = Color.White
-                                    )
-                                )
-                            }
-                        }
-
-                        if (hdrState.mode == com.example.camera.model.VideoHdrMode.MANUAL) {
-                            Column(modifier = Modifier.padding(top = 4.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("HDR Dynamic Range Intensity", color = Color.White, fontSize = 12.sp)
-                                    Text("${hdrState.manualIntensity}%", color = Color(0xFFFFD54F), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                                Slider(
-                                    value = hdrState.manualIntensity.toFloat(),
-                                    onValueChange = { onHdrIntensityChanged(it.toInt()) },
-                                    valueRange = 0f..100f,
-                                    steps = 99,
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = Color(0xFFFFD54F),
-                                        activeTrackColor = Color(0xFFFFD54F),
-                                        inactiveTrackColor = Color.White.copy(alpha = 0.2f)
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-
                 // Bitrate
                 item {
                     SettingsSectionHeader(title = "Video Bitrate")

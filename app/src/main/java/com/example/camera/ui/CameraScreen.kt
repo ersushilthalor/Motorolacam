@@ -108,8 +108,7 @@ fun CameraScreen(
     val portraitProcessingState by viewModel.portraitProcessingState.collectAsStateWithLifecycle()
     val isPortraitSettingsOpen by viewModel.isPortraitSettingsOpen.collectAsStateWithLifecycle()
     val saveSelfieAsPreviewed by viewModel.saveSelfieAsPreviewed.collectAsStateWithLifecycle()
-    val videoHdrState by viewModel.videoHdrState.collectAsStateWithLifecycle()
-    val isVideoHdrPanelOpen by viewModel.isVideoHdrPanelOpen.collectAsStateWithLifecycle()
+    val photoMegapixelMode by viewModel.photoMegapixelMode.collectAsStateWithLifecycle()
     val isVideoSettingsPanelOpen by viewModel.isVideoSettingsPanelOpen.collectAsStateWithLifecycle()
 
     val cinemaConfig by viewModel.cinemaConfig.collectAsStateWithLifecycle()
@@ -193,12 +192,12 @@ fun CameraScreen(
             videoQuality = currentVideoQuality,
             videoResolution = selectedVideoResolution,
             videoFps = videoFps,
-            hdrState = videoHdrState,
+            photoMegapixelMode = photoMegapixelMode,
             cinemaConfig = cinemaConfig,
             onCinemaSettingsClick = { viewModel.toggleCinemaSettings() },
             onVideoQualityClick = { viewModel.cycleVideoQuality() },
             onVideoSettingsClick = { viewModel.toggleVideoSettingsPanel() },
-            onHdrClick = { viewModel.toggleVideoHdrPanel() },
+            onToggleMegapixelMode = { viewModel.togglePhotoMegapixelMode() },
             onFlashClick = { viewModel.cycleFlashMode() },
             onTimerClick = { viewModel.cycleTimerMode() },
             onGridClick = { viewModel.cycleGridType() },
@@ -252,6 +251,7 @@ fun CameraScreen(
                 onColorProfileChange = { viewModel.setColorProfile(it) },
                 onToggleAeLock = { viewModel.toggleAeLock() },
                 onToggleAfLock = { viewModel.toggleAfLock() },
+                onClose = { viewModel.setManualProOpen(false) },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 190.dp)
@@ -313,42 +313,6 @@ fun CameraScreen(
                     )
                 }
             }
-        }
-
-        // 3c. Dedicated Video Mode Real-Time HDR Controls Panel
-        AnimatedVisibility(
-            visible = cameraMode == CameraMode.VIDEO && isVideoHdrPanelOpen,
-            enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
-            exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 190.dp)
-        ) {
-            VideoHdrControlBar(
-                hdrState = videoHdrState,
-                onModeChanged = { viewModel.setVideoHdrMode(it) },
-                onIntensityChanged = { viewModel.setVideoHdrManualIntensity(it) },
-                onShadowsChanged = { viewModel.setVideoHdrManualShadows(it) },
-                onHighlightsChanged = { viewModel.setVideoHdrManualHighlights(it) },
-                onContrastChanged = { viewModel.setVideoHdrManualContrast(it) },
-                onExposureChanged = { viewModel.setVideoHdrManualExposure(it) },
-                onBlackLevelChanged = { viewModel.setVideoHdrManualBlackLevel(it) },
-                onMidtonesChanged = { viewModel.setVideoHdrManualMidtones(it) },
-                onSaturationChanged = { viewModel.setVideoHdrManualSaturation(it) },
-                onClose = { viewModel.setVideoHdrPanelOpen(false) },
-                modifier = Modifier.padding(horizontal = 12.dp)
-            )
-        }
-
-        // Floating button to reopen Video HDR Controls when closed
-        if (cameraMode == CameraMode.VIDEO && !isVideoHdrPanelOpen) {
-            VideoHdrFloatingButton(
-                hdrState = videoHdrState,
-                onClick = { viewModel.setVideoHdrPanelOpen(true) },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 190.dp)
-            )
         }
 
         // 3d. Dedicated Cinema Mode Settings Window (matching reference image)
@@ -492,13 +456,11 @@ fun CameraScreen(
             isRecordingVideo = isRecordingVideo,
             videoDurationSeconds = videoDurationSeconds,
             isCapturing = isCapturing,
-            isManualProOpen = isManualProOpen,
             lastCapturedMedia = lastCapturedMedia,
             activeTimerCountdown = activeTimerCountdown,
             onModeSelected = { viewModel.setCameraMode(it) },
             onShutterClick = { viewModel.onMainActionButtonClick() },
             onFlipCameraClick = { viewModel.toggleCameraFacing() },
-            onToggleProClick = { viewModel.toggleManualPro() },
             onGalleryClick = {
                 if (lastCapturedMedia != null) {
                     viewModel.setMediaViewerOpen(true)
@@ -523,7 +485,6 @@ fun CameraScreen(
             isAudioEnabled = isAudioEnabled,
             isRawEnabled = isRawEnabled,
             saveSelfieAsPreviewed = saveSelfieAsPreviewed,
-            hdrState = videoHdrState,
             viewfinderResolution = viewfinderResolution,
             onPhotoResolutionSelected = { viewModel.selectPhotoResolution(it) },
             onVideoResolutionSelected = { viewModel.selectVideoResolution(it) },
@@ -534,8 +495,6 @@ fun CameraScreen(
             onAudioToggle = { viewModel.toggleAudio() },
             onRawToggle = { viewModel.toggleRawCapture() },
             onSaveSelfieAsPreviewedToggle = { viewModel.setSaveSelfieAsPreviewed(it) },
-            onHdrModeSelected = { viewModel.setVideoHdrMode(it) },
-            onHdrIntensityChanged = { viewModel.setVideoHdrManualIntensity(it) },
             onDismiss = { viewModel.setSettingsOpen(false) }
         )
 

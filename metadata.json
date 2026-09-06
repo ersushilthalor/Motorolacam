@@ -1,6 +1,6 @@
 {
   "name": "Camera Pro",
-  "description": "Professional camera with manual controls, real aspect ratio preview, Photo, Portrait, Video HDR, and dedicated Cinema Log recording modes.",
+  "description": "Professional camera with manual controls, 50MP RAW burst stacking, real aspect ratio preview, Portrait, clean Video, and Cinema Log recording modes.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

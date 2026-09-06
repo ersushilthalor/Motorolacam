@@ -194,4 +194,99 @@ class CameraPreferences(context: Context) {
             return try { com.example.camera.model.ViewfinderResolution.valueOf(name) } catch (e: Exception) { com.example.camera.model.ViewfinderResolution.NORMAL }
         }
         set(value) = prefs.edit().putString(KEY_VIEWFINDER_RESOLUTION, value.name).apply()
+
+    // Photo Megapixel Mode (12M vs 50M)
+    var photoMegapixelMode: com.example.camera.model.PhotoMegapixelMode
+        get() {
+            val name = prefs.getString("pref_photo_mp_mode", com.example.camera.model.PhotoMegapixelMode.M12.name)
+                ?: com.example.camera.model.PhotoMegapixelMode.M12.name
+            return try { com.example.camera.model.PhotoMegapixelMode.valueOf(name) } catch (e: Exception) { com.example.camera.model.PhotoMegapixelMode.M12 }
+        }
+        set(value) = prefs.edit().putString("pref_photo_mp_mode", value.name).apply()
+
+    // Cinema Mode Preferences - Full Persistence across sessions
+    var cinemaFps: Int
+        get() = prefs.getInt("pref_cinema_fps", 24)
+        set(value) = prefs.edit().putInt("pref_cinema_fps", value).apply()
+
+    var cinemaWidth: Int
+        get() = prefs.getInt("pref_cinema_width", 3840)
+        set(value) = prefs.edit().putInt("pref_cinema_width", value).apply()
+
+    var cinemaHeight: Int
+        get() = prefs.getInt("pref_cinema_height", 2160)
+        set(value) = prefs.edit().putInt("pref_cinema_height", value).apply()
+
+    var cinemaLogBitDepth: com.example.camera.model.LogBitDepth
+        get() {
+            val name = prefs.getString("pref_cinema_bit_depth", com.example.camera.model.LogBitDepth.BIT_10.name)
+                ?: com.example.camera.model.LogBitDepth.BIT_10.name
+            return try { com.example.camera.model.LogBitDepth.valueOf(name) } catch (e: Exception) { com.example.camera.model.LogBitDepth.BIT_10 }
+        }
+        set(value) = prefs.edit().putString("pref_cinema_bit_depth", value.name).apply()
+
+    var cinemaColorProfile: com.example.camera.model.CinemaColorProfile
+        get() {
+            val name = prefs.getString("pref_cinema_color_profile", com.example.camera.model.CinemaColorProfile.FLAT_LOG.name)
+                ?: com.example.camera.model.CinemaColorProfile.FLAT_LOG.name
+            return try { com.example.camera.model.CinemaColorProfile.valueOf(name) } catch (e: Exception) { com.example.camera.model.CinemaColorProfile.FLAT_LOG }
+        }
+        set(value) = prefs.edit().putString("pref_cinema_color_profile", value.name).apply()
+
+    var cinemaColorSpace: com.example.camera.model.CinemaColorSpace
+        get() {
+            val name = prefs.getString("pref_cinema_color_space", com.example.camera.model.CinemaColorSpace.REC_709.name)
+                ?: com.example.camera.model.CinemaColorSpace.REC_709.name
+            return try { com.example.camera.model.CinemaColorSpace.valueOf(name) } catch (e: Exception) { com.example.camera.model.CinemaColorSpace.REC_709 }
+        }
+        set(value) = prefs.edit().putString("pref_cinema_color_space", value.name).apply()
+
+    var cinemaIsRawSensorLogPipeline: Boolean
+        get() = prefs.getBoolean("pref_cinema_raw_pipeline", true)
+        set(value) = prefs.edit().putBoolean("pref_cinema_raw_pipeline", value).apply()
+
+    var cinemaIsFocusPeakingEnabled: Boolean
+        get() = prefs.getBoolean("pref_cinema_focus_peaking", false)
+        set(value) = prefs.edit().putBoolean("pref_cinema_focus_peaking", value).apply()
+
+    var cinemaIsWaveformEnabled: Boolean
+        get() = prefs.getBoolean("pref_cinema_waveform", false)
+        set(value) = prefs.edit().putBoolean("pref_cinema_waveform", value).apply()
+
+    var cinemaZebraThreshold: com.example.camera.model.ZebraThreshold
+        get() {
+            val name = prefs.getString("pref_cinema_zebra_threshold", com.example.camera.model.ZebraThreshold.IRE_70.name)
+                ?: com.example.camera.model.ZebraThreshold.IRE_70.name
+            return try { com.example.camera.model.ZebraThreshold.valueOf(name) } catch (e: Exception) { com.example.camera.model.ZebraThreshold.IRE_70 }
+        }
+        set(value) = prefs.edit().putString("pref_cinema_zebra_threshold", value.name).apply()
+
+    fun getCinemaConfig(): com.example.camera.model.CinemaConfig {
+        return com.example.camera.model.CinemaConfig(
+            videoFps = cinemaFps,
+            selectedResolution = com.example.camera.model.CameraResolution(cinemaWidth, cinemaHeight),
+            logBitDepth = cinemaLogBitDepth,
+            colorProfile = cinemaColorProfile,
+            colorSpace = cinemaColorSpace,
+            isRawSensorLogPipeline = cinemaIsRawSensorLogPipeline,
+            isFocusPeakingEnabled = cinemaIsFocusPeakingEnabled,
+            isWaveformEnabled = cinemaIsWaveformEnabled,
+            zebraThreshold = cinemaZebraThreshold
+        )
+    }
+
+    fun saveCinemaConfig(config: com.example.camera.model.CinemaConfig) {
+        cinemaFps = config.videoFps
+        config.selectedResolution?.let {
+            cinemaWidth = it.width
+            cinemaHeight = it.height
+        }
+        cinemaLogBitDepth = config.logBitDepth
+        cinemaColorProfile = config.colorProfile
+        cinemaColorSpace = config.colorSpace
+        cinemaIsRawSensorLogPipeline = config.isRawSensorLogPipeline
+        cinemaIsFocusPeakingEnabled = config.isFocusPeakingEnabled
+        cinemaIsWaveformEnabled = config.isWaveformEnabled
+        cinemaZebraThreshold = config.zebraThreshold
+    }
 }

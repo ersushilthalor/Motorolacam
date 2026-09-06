@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.*
@@ -56,6 +57,7 @@ fun ManualProControlBar(
     onColorProfileChange: (ColorProfile) -> Unit,
     onToggleAeLock: () -> Unit,
     onToggleAfLock: () -> Unit,
+    onClose: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -165,6 +167,21 @@ fun ManualProControlBar(
                         ),
                         modifier = Modifier.testTag("af_lock_chip")
                     )
+
+                    // Dismiss Pro Controls Button
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .testTag("close_pro_controls_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close Pro Controls",
+                            tint = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
 

@@ -1,5 +1,6 @@
 package com.example.camera.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,12 +35,12 @@ fun TopControlBar(
     videoQuality: VideoQualityOption = VideoQualityOption.UHD_4K_30,
     videoResolution: CameraResolution? = null,
     videoFps: Int = 30,
-    hdrState: VideoHdrState = VideoHdrState(),
+    photoMegapixelMode: PhotoMegapixelMode = PhotoMegapixelMode.M12,
     cinemaConfig: CinemaConfig = CinemaConfig(),
     onCinemaSettingsClick: () -> Unit = {},
     onVideoQualityClick: () -> Unit = {},
     onVideoSettingsClick: () -> Unit = {},
-    onHdrClick: () -> Unit = {},
+    onToggleMegapixelMode: () -> Unit = {},
     onFlashClick: () -> Unit,
     onTimerClick: () -> Unit,
     onGridClick: () -> Unit,
@@ -95,26 +96,6 @@ fun TopControlBar(
                     )
                 }
 
-                // Cinema quick button
-                if (cameraMode == CameraMode.CINEMA) {
-                    IconButton(
-                        onClick = onCinemaSettingsClick,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF26210A))
-                            .border(1.dp, Color(0xFFFFD54F), CircleShape)
-                            .testTag("top_cinema_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.MovieCreation,
-                            contentDescription = "Cinema Settings",
-                            tint = Color(0xFFFFD54F),
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
-                }
-
                 // Timer Button (Photo / Portrait Modes)
                 if (cameraMode != CameraMode.VIDEO && cameraMode != CameraMode.CINEMA) {
                     IconButton(
@@ -155,7 +136,7 @@ fun TopControlBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Video Mode: Sleek Resolution · FPS Pill (matching reference screenshot)
+                // Video Mode: Sleek Resolution · FPS Pill (HDR system completely removed)
                 if (cameraMode == CameraMode.VIDEO) {
                     val resLabel = when {
                         videoResolution?.width == 3840 || videoResolution?.height == 3840 -> "4K"
@@ -183,57 +164,9 @@ fun TopControlBar(
                             letterSpacing = 0.5.sp
                         )
                     }
-
-                    // Video HDR Top Button
-                    val isHdrActive = hdrState.mode != VideoHdrMode.OFF
-                    val hdrBorderColor = when (hdrState.mode) {
-                        VideoHdrMode.AUTO -> Color(0xFFFFD54F)
-                        VideoHdrMode.MANUAL -> Color(0xFFFFB300)
-                        VideoHdrMode.OFF -> Color.White.copy(alpha = 0.20f)
-                    }
-                    val hdrTextColor = when (hdrState.mode) {
-                        VideoHdrMode.AUTO -> Color(0xFFFFD54F)
-                        VideoHdrMode.MANUAL -> Color(0xFFFFB300)
-                        VideoHdrMode.OFF -> Color.White.copy(alpha = 0.70f)
-                    }
-                    val hdrText = when (hdrState.mode) {
-                        VideoHdrMode.AUTO -> "HDR"
-                        VideoHdrMode.MANUAL -> "HDR ${hdrState.manualIntensity}%"
-                        VideoHdrMode.OFF -> "HDR"
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(if (isHdrActive) hdrBorderColor.copy(alpha = 0.18f) else Color(0xB21E1E22))
-                            .border(1.dp, hdrBorderColor, RoundedCornerShape(16.dp))
-                            .clickable { onHdrClick() }
-                            .padding(horizontal = 11.dp, vertical = 6.dp)
-                            .testTag("top_video_hdr_button"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isHdrActive) Icons.Filled.HdrOn else Icons.Outlined.HdrOff,
-                                contentDescription = "Video HDR Mode",
-                                tint = hdrTextColor,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Text(
-                                text = hdrText,
-                                color = hdrTextColor,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
-                    }
                 }
 
-                // Cinema Mode: Sleek Resolution · FPS · Log Depth Pill
+                // Cinema Mode: Sleek Quality Option Pill ONLY (cinema icon removed, tap here to open all cinema settings)
                 if (cameraMode == CameraMode.CINEMA) {
                     val resLabel = when {
                         cinemaConfig.selectedResolution?.width == 3840 || cinemaConfig.selectedResolution?.height == 3840 -> "4K"
@@ -248,27 +181,56 @@ fun TopControlBar(
                             .background(Color(0xFF26210A))
                             .border(1.dp, Color(0xFFFFD54F), RoundedCornerShape(16.dp))
                             .clickable { onCinemaSettingsClick() }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
                             .testTag("cinema_resolution_fps_pill"),
                         contentAlignment = Alignment.Center
                     ) {
+                        Text(
+                            text = "$resLabel · ${cinemaConfig.videoFps} · $bitLabel",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+
+                // Photo Mode: 12M / 50M Ultra HD Option Pill
+                if (cameraMode == CameraMode.PHOTO) {
+                    val is50M = photoMegapixelMode == PhotoMegapixelMode.M50
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (is50M) Color(0xFFFFD54F).copy(alpha = 0.25f) else Color(0xB21E1E22),
+                        border = BorderStroke(
+                            1.dp,
+                            if (is50M) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.20f)
+                        ),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { onToggleMegapixelMode() }
+                            .testTag("photo_mp_toggle_chip")
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Movie,
-                                contentDescription = "Cinema Settings",
-                                tint = Color(0xFFFFD54F),
-                                modifier = Modifier.size(14.dp)
-                            )
                             Text(
-                                text = "$resLabel · ${cinemaConfig.videoFps} · $bitLabel",
-                                color = Color(0xFFFFD54F),
-                                fontSize = 12.sp,
+                                text = photoMegapixelMode.label,
+                                color = if (is50M) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.90f),
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 0.5.sp
                             )
+                            if (is50M) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "ULTRA",
+                                    color = Color(0xFFFFD54F),
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
                         }
                     }
                 }
@@ -278,7 +240,7 @@ fun TopControlBar(
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = if (isRawEnabled) Color(0xFFFFB300).copy(alpha = 0.25f) else Color(0xB21E1E22),
-                        border = androidx.compose.foundation.BorderStroke(
+                        border = BorderStroke(
                             1.dp,
                             if (isRawEnabled) Color(0xFFFFB300) else Color.White.copy(alpha = 0.20f)
                         ),
