@@ -285,7 +285,7 @@ fun CameraScreen(
             )
         }
 
-        // Floating button to open Aperture Setting in Portrait Mode (only 'f' icon)
+        // Floating button to open Aperture Setting in Portrait Mode (only 'f' icon on right side)
         if (cameraMode == CameraMode.PORTRAIT && !isPortraitSettingsOpen) {
             Surface(
                 shape = CircleShape,
@@ -300,8 +300,8 @@ fun CameraScreen(
                     )
                 ),
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 190.dp)
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 190.dp, end = 20.dp)
                     .size(46.dp)
                     .clip(CircleShape)
                     .clickable { viewModel.setPortraitSettingsOpen(true) }
@@ -338,31 +338,6 @@ fun CameraScreen(
                 onDismissRequest = { viewModel.setCinemaSettingsOpen(false) },
                 modifier = Modifier.padding(horizontal = 14.dp)
             )
-        }
-
-        // Floating button to reopen Cinema Settings when closed
-        if (cameraMode == CameraMode.CINEMA && !isCinemaSettingsOpen) {
-            Surface(
-                shape = CircleShape,
-                color = Color(0xFF26210A).copy(alpha = 0.85f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD54F)),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 190.dp)
-                    .size(46.dp)
-                    .clip(CircleShape)
-                    .clickable { viewModel.setCinemaSettingsOpen(true) }
-                    .testTag("open_cinema_settings_button")
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Filled.MovieCreation,
-                        contentDescription = "Open Cinema Settings",
-                        tint = Color(0xFFFFD54F),
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
         }
 
         // 3e. Dedicated More Modes Drawer
@@ -477,21 +452,30 @@ fun CameraScreen(
             modifier = Modifier.align(Alignment.BottomCenter)
         )
 
-        // 6. Settings Bottom Sheet
+        // 6. Settings Bottom Sheet (Light Mode, Categorized)
         SettingsDrawer(
             isOpen = isSettingsOpen,
             cameraMode = cameraMode,
             capabilities = capabilities,
+            availableLenses = displayedLenses,
+            selectedLens = selectedLens,
             selectedPhotoResolution = selectedPhotoResolution,
             selectedVideoResolution = selectedVideoResolution,
+            photoMegapixelMode = photoMegapixelMode,
             videoFps = videoFps,
             videoBitrate = videoBitrate,
             isVideoStabilizationEnabled = isVideoStabilizationEnabled,
             isAudioEnabled = isAudioEnabled,
             isRawEnabled = isRawEnabled,
             saveSelfieAsPreviewed = saveSelfieAsPreviewed,
+            gridType = gridType,
+            cinemaConfig = cinemaConfig,
+            cinemaCapabilities = cinemaCapabilities,
             viewfinderResolution = viewfinderResolution,
+            onLensSelected = { viewModel.selectLens(it) },
+            onForceDeepScan = { viewModel.forceDeepScanLenses() },
             onPhotoResolutionSelected = { viewModel.selectPhotoResolution(it) },
+            onPhotoMegapixelModeSelected = { viewModel.setPhotoMegapixelMode(it) },
             onVideoResolutionSelected = { viewModel.selectVideoResolution(it) },
             onViewfinderResolutionSelected = { viewModel.setViewfinderResolution(it) },
             onVideoFpsSelected = { viewModel.setVideoFps(it) },
@@ -500,6 +484,8 @@ fun CameraScreen(
             onAudioToggle = { viewModel.toggleAudio() },
             onRawToggle = { viewModel.toggleRawCapture() },
             onSaveSelfieAsPreviewedToggle = { viewModel.setSaveSelfieAsPreviewed(it) },
+            onGridTypeSelected = { viewModel.setGridType(it) },
+            onCinemaConfigChange = { viewModel.updateCinemaConfig(it) },
             onDismiss = { viewModel.setSettingsOpen(false) }
         )
 

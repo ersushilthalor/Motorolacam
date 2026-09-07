@@ -391,6 +391,19 @@ class UltraRes50MStacker(private val context: Context) {
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 98, out)
             }
 
+            try {
+                context.contentResolver.openFileDescriptor(uri, "rw")?.use { pfd ->
+                    val outExif = android.media.ExifInterface(pfd.fileDescriptor)
+                    outExif.setAttribute(
+                        android.media.ExifInterface.TAG_ORIENTATION,
+                        android.media.ExifInterface.ORIENTATION_NORMAL.toString()
+                    )
+                    outExif.saveAttributes()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to write normal EXIF orientation on 50M image", e)
+            }
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 contentValues.clear()
                 contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)

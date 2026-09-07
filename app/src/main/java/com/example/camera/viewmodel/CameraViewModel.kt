@@ -122,6 +122,17 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val _photoMegapixelMode = MutableStateFlow(preferences.photoMegapixelMode)
     val photoMegapixelMode: StateFlow<PhotoMegapixelMode> = _photoMegapixelMode.asStateFlow()
 
+    fun setPhotoMegapixelMode(mode: PhotoMegapixelMode) {
+        _photoMegapixelMode.value = mode
+        preferences.photoMegapixelMode = mode
+        engine.photoMegapixelMode = mode
+        if (mode == PhotoMegapixelMode.M50) {
+            showToast("50M Computational Ultra HD")
+        } else {
+            showToast("12M Standard Mode")
+        }
+    }
+
     fun togglePhotoMegapixelMode() {
         val next = if (_photoMegapixelMode.value == PhotoMegapixelMode.M12) {
             PhotoMegapixelMode.M50
@@ -385,9 +396,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         _cameraMode.value = mode
         preferences.cameraMode = mode
         engine.setMode(mode)
-        if (mode == CameraMode.CINEMA) {
-            _isCinemaSettingsOpen.value = true
-        } else if (mode == CameraMode.MORE) {
+        _isCinemaSettingsOpen.value = false
+        if (mode == CameraMode.MORE) {
             _isMoreModesOpen.value = true
         }
     }
@@ -445,6 +455,11 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         _timerMode.value = nextMode
         preferences.timerMode = nextMode
         showToast("Timer: ${nextMode.label}")
+    }
+
+    fun setGridType(type: GridType) {
+        _gridType.value = type
+        preferences.gridType = type
     }
 
     fun cycleGridType() {

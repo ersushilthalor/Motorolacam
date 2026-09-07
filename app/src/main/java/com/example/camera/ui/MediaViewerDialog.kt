@@ -45,37 +45,27 @@ fun MediaViewerDialog(
                 .background(Color.Black)
                 .testTag("media_viewer_dialog")
         ) {
-            // Media Preview
-            AsyncImage(
-                model = media.uri,
-                contentDescription = media.displayName,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // Video Play overlay button if video
+            // Media Preview or In-App Video Playback
             if (media.isVideo) {
-                IconButton(
-                    onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(media.uri, "video/*")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { ctx ->
+                        android.widget.VideoView(ctx).apply {
+                            setVideoURI(media.uri)
+                            setOnPreparedListener { mp ->
+                                mp.isLooping = true
+                                start()
+                            }
                         }
-                        context.startActivity(Intent.createChooser(intent, "Play Video"))
                     },
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(72.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.6f))
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Play Video",
-                        tint = Color.White,
-                        modifier = Modifier.size(44.dp)
-                    )
-                }
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                AsyncImage(
+                    model = media.uri,
+                    contentDescription = media.displayName,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
 
             // Top bar

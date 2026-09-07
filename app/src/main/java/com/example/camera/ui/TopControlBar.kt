@@ -97,8 +97,8 @@ fun TopControlBar(
 
             // 2. Timer or Quick Secondary Action (Circular)
             when (cameraMode) {
-                CameraMode.VIDEO -> {
-                    // Audio toggle in Video mode
+                CameraMode.VIDEO, CameraMode.CINEMA -> {
+                    // Audio toggle in Video and Cinema modes
                     IconButton(
                         onClick = onAudioToggle,
                         modifier = Modifier
@@ -112,25 +112,6 @@ fun TopControlBar(
                             imageVector = if (isAudioEnabled) Icons.Outlined.Mic else Icons.Outlined.MicOff,
                             contentDescription = if (isAudioEnabled) "Audio On" else "Audio Muted",
                             tint = if (isAudioEnabled) Color.White.copy(alpha = 0.85f) else Color(0xFFFF6B6B),
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
-                }
-                CameraMode.CINEMA -> {
-                    // Cinema Tools assist toggle shortcut
-                    IconButton(
-                        onClick = onCinemaSettingsClick,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xB21A1A1E))
-                            .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
-                            .testTag("cinema_tools_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Movie,
-                            contentDescription = "Cinema Tools",
-                            tint = Color(0xFFFFD54F),
                             modifier = Modifier.size(19.dp)
                         )
                     }
@@ -255,14 +236,13 @@ fun TopControlBar(
                             .height(34.dp)
                             .clip(RoundedCornerShape(17.dp))
                             .background(Color(0xB21A1A1E))
-                            .border(1.dp, Color(0xFFFFD54F), RoundedCornerShape(17.dp))
-                            .clickable { onCinemaSettingsClick() }
+                            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(17.dp))
                             .padding(horizontal = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = resLabel,
-                            color = Color(0xFFFFD54F),
+                            color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 0.5.sp

@@ -1571,19 +1571,59 @@ class Camera2Engine(private val context: Context) {
                     val options = BitmapFactory.Options().apply {
                         inMutable = true
                     }
-                    val singleFrameBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                    val rawBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
 
-                    if (singleFrameBitmap != null) {
+                    if (rawBitmap != null) {
+                        val exif = try {
+                            android.media.ExifInterface(java.io.ByteArrayInputStream(bytes))
+                        } catch (e: Exception) {
+                            null
+                        }
+                        val exifOrientation = exif?.getAttributeInt(
+                            android.media.ExifInterface.TAG_ORIENTATION,
+                            android.media.ExifInterface.ORIENTATION_UNDEFINED
+                        ) ?: android.media.ExifInterface.ORIENTATION_UNDEFINED
+
+                        val matrix = Matrix()
+                        when (exifOrientation) {
+                            android.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                            android.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                            android.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                            else -> {
+                                if (rawBitmap.width > rawBitmap.height) {
+                                    val rot = if (isFrontFacing) 270f else 90f
+                                    matrix.postRotate(rot)
+                                }
+                            }
+                        }
+
+                        // Front camera viewfinder WYSIWYG mirroring preservation on upright frame
+                        if (isFrontFacing && saveSelfieAsPreviewed) {
+                            matrix.postScale(-1f, 1f)
+                        }
+
+                        val uprightBitmap = if (!matrix.isIdentity) {
+                            val rotated = Bitmap.createBitmap(
+                                rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true
+                            )
+                            if (rotated != rawBitmap) {
+                                rawBitmap.recycle()
+                            }
+                            rotated
+                        } else {
+                            rawBitmap
+                        }
+
                         engineScope.launch(Dispatchers.Default) {
                             val uri = ultraRes50MStacker.processAndSaveSingleFrame50M(
-                                source = singleFrameBitmap,
+                                source = uprightBitmap,
                                 iso = capturedIso,
                                 exposureTimeNs = capturedExposureNs,
-                                isFrontFacing = isFrontFacing,
-                                saveMirrored = saveSelfieAsPreviewed
+                                isFrontFacing = false, // already transformed & mirrored upright
+                                saveMirrored = false
                             )
-                            if (!singleFrameBitmap.isRecycled) {
-                                singleFrameBitmap.recycle()
+                            if (!uprightBitmap.isRecycled) {
+                                uprightBitmap.recycle()
                             }
                             _isCapturing.value = false
                             updateStorageStats()
@@ -1979,12 +2019,6 @@ class Camera2Engine(private val context: Context) {
             engineScope.launch(Dispatchers.IO) {
                 try {
                     if (tempFile != null && tempFile.exists()) {
-                        // Apply in-place front camera video mirroring if front camera was recorded
-                        if (isFrontFacing && saveSelfieAsPreviewed) {
-                            Log.d(TAG, "Applying front camera horizontal mirroring to recorded video: ${tempFile.absolutePath}")
-                            Mp4VideoMirrorProcessor.applyHorizontalFlip(tempFile)
-                        }
-
                         // Copy to MediaStore uri
                         currentVideoUri?.let { uri ->
                             context.contentResolver.openOutputStream(uri, "w")?.use { outStream ->
