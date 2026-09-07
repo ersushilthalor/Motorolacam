@@ -104,18 +104,18 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     val saveSelfieAsPreviewed: StateFlow<Boolean> = _saveSelfieAsPreviewed.asStateFlow()
 
     // Portrait Settings Window Open/Close
-    private val _isPortraitSettingsOpen = MutableStateFlow(true)
+    private val _isPortraitSettingsOpen = MutableStateFlow(false)
     val isPortraitSettingsOpen: StateFlow<Boolean> = _isPortraitSettingsOpen.asStateFlow()
 
     // Video HDR State & Panel visibility
     val videoHdrState: StateFlow<VideoHdrState> = engine.videoHdrState
-    private val _isVideoHdrPanelOpen = MutableStateFlow(true)
+    private val _isVideoHdrPanelOpen = MutableStateFlow(false)
     val isVideoHdrPanelOpen: StateFlow<Boolean> = _isVideoHdrPanelOpen.asStateFlow()
 
     // Cinema Mode State & Panel visibility
     val cinemaConfig: StateFlow<CinemaConfig> = engine.cinemaConfig
     val cinemaCapabilities: StateFlow<CinemaHardwareCapabilities> = engine.cinemaCapabilities
-    private val _isCinemaSettingsOpen = MutableStateFlow(true)
+    private val _isCinemaSettingsOpen = MutableStateFlow(false)
     val isCinemaSettingsOpen: StateFlow<Boolean> = _isCinemaSettingsOpen.asStateFlow()
 
     // Photo Megapixel Mode (12M vs 50M Ultra)
@@ -405,6 +405,15 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     fun selectLens(lens: LensInfo) {
         engine.selectLens(lens)
         preferences.lastFacing = lens.facing
+        val lensDesc = when (lens.lensType) {
+            LensType.ULTRAWIDE -> "0.5x Ultra-Wide"
+            LensType.WIDE -> "1x Main"
+            LensType.TELEPHOTO -> "2x Telephoto"
+            LensType.TELEPHOTO_3X -> "3x Telephoto"
+            LensType.MACRO -> "Macro"
+            LensType.FRONT -> "Front Selfie"
+        }
+        showToast("Switched to $lensDesc Lens")
     }
 
     fun forceDeepScanLenses() {

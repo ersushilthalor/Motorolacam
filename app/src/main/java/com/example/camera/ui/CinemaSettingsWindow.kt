@@ -14,7 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -96,30 +95,19 @@ fun CinemaSettingsWindow(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 2. Subtitle row with Film Icon & Info Button
+            // 2. Subtitle row with Info Button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Movie,
-                        contentDescription = "Cinema Mode",
-                        tint = Color.White.copy(alpha = 0.90f),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Professional video with Log, colour profiles and cinematic controls.",
-                        color = Color.White.copy(alpha = 0.82f),
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp
-                    )
-                }
+                Text(
+                    text = "Professional video with Log, colour profiles and cinematic controls.",
+                    color = Color.White.copy(alpha = 0.82f),
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.weight(1f)
+                )
 
                 IconButton(
                     onClick = { showInfoDialog = true },

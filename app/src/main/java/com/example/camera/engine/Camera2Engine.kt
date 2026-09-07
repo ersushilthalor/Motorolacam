@@ -351,9 +351,10 @@ class Camera2Engine(private val context: Context) {
                                         else -> LensType.WIDE
                                     }
 
+                                    val openableId = if (officialIds.contains(physId)) physId else id
                                     lenses.add(
                                         LensInfo(
-                                            cameraId = physId,
+                                            cameraId = openableId,
                                             facing = pFacing,
                                             lensType = pType,
                                             displayName = "Physical $physId (${pType.shortLabel} · ${pFocal}mm)",
@@ -761,11 +762,8 @@ class Camera2Engine(private val context: Context) {
             return
         }
 
-        // If same physical camera ID, same physicalCameraId, same lens type, and same facing, update zoom without restarting camera hardware
+        // If same camera ID and same facing, update optical zoom/crop dynamically without restarting hardware
         if (previousLens?.cameraId == lens.cameraId &&
-            previousLens?.physicalCameraId == lens.physicalCameraId &&
-            previousLens?.lensType == lens.lensType &&
-            previousLens?.isPhysical == lens.isPhysical &&
             previousLens?.facing == lens.facing &&
             cameraDevice != null) {
             updatePreviewSettings()
@@ -1159,29 +1157,13 @@ class Camera2Engine(private val context: Context) {
         val lens = _selectedLens.value ?: return
         try {
             val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
-            val baseRatio = if (lens.baseZoomRatio > 0f) lens.baseZoomRatio else 1.0f
 
-            // Compute sensor-relative zoom ratio:
-            // e.g. On 0.5x Ultra-Wide sensor (baseRatio = 0.5f), 0.5f zoom gives effectiveZoomRatio = 1.0f (full native FOV)
-            // 0.75f gives effectiveZoomRatio = 1.5f digital crop
-            // On 1x Main sensor (baseRatio = 1.0f), 1.0f gives effectiveZoomRatio = 1.0f, 2.0f gives 2.0f
-            val effectiveZoomRatio = if (lens.lensType == LensType.ULTRAWIDE && baseRatio <= 0.6f) {
-                (currentZoom / baseRatio).coerceAtLeast(1.0f)
-            } else if ((lens.lensType == LensType.TELEPHOTO || lens.lensType == LensType.TELEPHOTO_3X) && baseRatio > 1.2f) {
-                (currentZoom / baseRatio).coerceAtLeast(1.0f)
-            } else {
-                currentZoom.coerceAtLeast(1.0f)
-            }
-
-            // On Android 11+ (API 30+), CONTROL_ZOOM_RATIO natively supports < 1.0f (Ultra-Wide 0.5x/0.6x)
+            // On Android 11+ (API 30+), CONTROL_ZOOM_RATIO natively switches between physical sensors
+            // (e.g. 0.5x Ultra-Wide, 1.0x Main Wide, 3.0x Telephoto) and applies smooth optical/digital scaling
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val zoomRange = chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
                 if (zoomRange != null) {
-                    val clamped = if (zoomRange.lower <= 0.6f) {
-                        currentZoom.coerceIn(zoomRange.lower, zoomRange.upper)
-                    } else {
-                        effectiveZoomRatio.coerceIn(zoomRange.lower, zoomRange.upper)
-                    }
+                    val clamped = currentZoom.coerceIn(zoomRange.lower, zoomRange.upper)
                     builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, clamped)
                     return
                 }
@@ -1190,10 +1172,15 @@ class Camera2Engine(private val context: Context) {
             // Fallback for legacy devices or SCALER_CROP_REGION
             val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return
             val maxZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1.0f
-            val zoom = effectiveZoomRatio.coerceIn(1.0f, maxZoom)
+            val baseRatio = if (lens.baseZoomRatio > 0f) lens.baseZoomRatio else 1.0f
+            val effectiveZoom = if (lens.isPhysical && baseRatio > 1.2f) {
+                (currentZoom / baseRatio).coerceIn(1.0f, maxZoom)
+            } else {
+                currentZoom.coerceIn(1.0f, maxZoom)
+            }
 
-            val cropW = (sensorRect.width() / zoom).toInt()
-            val cropH = (sensorRect.height() / zoom).toInt()
+            val cropW = (sensorRect.width() / effectiveZoom).toInt()
+            val cropH = (sensorRect.height() / effectiveZoom).toInt()
             val cropX = (sensorRect.width() - cropW) / 2
             val cropY = (sensorRect.height() - cropH) / 2
 
@@ -1348,26 +1335,31 @@ class Camera2Engine(private val context: Context) {
             else -> null
         }
 
-        if (targetLens != null && targetLens.cameraId != currentLens.cameraId) {
-            zoomDebounceJob?.cancel()
-
-            if (isPresetTap) {
-                // Instant tap on .5, 1x, 2, 3, 10 -> switch hardware lens immediately
-                selectLens(targetLens)
-            } else {
-                // Continuous scrubbing: apply optical/digital zoom immediately to active preview,
-                // and switch physical camera ID once scrubbing settles (160ms) to prevent HAL freeze!
-                updatePreviewSettings()
-                zoomDebounceJob = engineScope.launch {
-                    delay(160)
-                    val activeNow = _selectedLens.value
-                    if (targetLens.cameraId != activeNow?.cameraId) {
-                        selectLens(targetLens)
+        if (targetLens != null && targetLens != currentLens) {
+            _selectedLens.value = targetLens
+            if (targetLens.cameraId != currentLens.cameraId) {
+                zoomDebounceJob?.cancel()
+                if (isPresetTap) {
+                    // Instant tap on .5, 1x, 2, 3, 10 -> switch hardware lens immediately
+                    selectLens(targetLens)
+                } else {
+                    // Continuous scrubbing: apply optical/digital zoom immediately to active preview,
+                    // and switch physical camera ID once scrubbing settles (160ms) to prevent HAL freeze!
+                    updatePreviewSettings()
+                    zoomDebounceJob = engineScope.launch {
+                        delay(160)
+                        val activeNow = _selectedLens.value
+                        if (targetLens.cameraId != activeNow?.cameraId) {
+                            selectLens(targetLens)
+                        }
                     }
                 }
+            } else {
+                // Same hardware camera: optical/digital zoom applied immediately without camera restart
+                updatePreviewSettings()
             }
         } else {
-            // Same hardware camera: apply zoom immediately
+            // Same lens: apply zoom immediately
             updatePreviewSettings()
         }
     }
@@ -2078,39 +2070,18 @@ class Camera2Engine(private val context: Context) {
             engineScope.launch(Dispatchers.IO) {
                 try {
                     if (tempFile != null && tempFile.exists()) {
-                        // For front camera, mirror video output so final playback matches expectation
-                        val fileToSave = if (isFrontFacing) {
-                            val mirroredFile = File(context.cacheDir, "rec_mirrored_${System.currentTimeMillis()}.mp4")
-                            val success = try {
-                                VideoMirrorTranscoder().mirrorVideo(tempFile, mirroredFile)
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Video mirror transcoder error, falling back to temp file", e)
-                                false
-                            }
-                            if (success && mirroredFile.exists() && mirroredFile.length() > 0) {
-                                mirroredFile
-                            } else {
-                                tempFile
-                            }
-                        } else {
-                            tempFile
-                        }
-
-                        // Copy to MediaStore uri
+                        // Save directly to MediaStore uri with hardware-encoded frames and exact orientation metadata
                         currentVideoUri?.let { uri ->
                             context.contentResolver.openOutputStream(uri, "w")?.use { outStream ->
-                                fileToSave.inputStream().use { inStream ->
+                                tempFile.inputStream().use { inStream ->
                                     inStream.copyTo(outStream)
                                 }
                             }
                         }
 
-                        // Clean up temporary files
+                        // Clean up temporary file
                         try {
                             tempFile.delete()
-                            if (fileToSave != tempFile) {
-                                fileToSave.delete()
-                            }
                         } catch (ignored: Exception) {}
                     }
 

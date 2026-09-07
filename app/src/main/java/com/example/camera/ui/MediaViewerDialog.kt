@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,18 +48,42 @@ fun MediaViewerDialog(
         ) {
             // Media Preview or In-App Video Playback
             if (media.isVideo) {
-                androidx.compose.ui.viewinterop.AndroidView(
-                    factory = { ctx ->
-                        android.widget.VideoView(ctx).apply {
-                            setVideoURI(media.uri)
-                            setOnPreparedListener { mp ->
-                                mp.isLooping = true
-                                start()
+                val videoAspectRatio = remember(media.uri) {
+                    try {
+                        val retriever = android.media.MediaMetadataRetriever()
+                        retriever.setDataSource(context, media.uri)
+                        val rotation = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+                        val rawW = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 1080
+                        val rawH = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 1920
+                        retriever.release()
+                        val isRotated = (rotation == 90 || rotation == 270)
+                        val dispW = if (isRotated) rawH else rawW
+                        val dispH = if (isRotated) rawW else rawH
+                        (dispW.toFloat() / dispH.toFloat()).coerceIn(0.2f, 5.0f)
+                    } catch (e: Exception) {
+                        9f / 16f
+                    }
+                }
+
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.ui.viewinterop.AndroidView(
+                        factory = { ctx ->
+                            android.widget.VideoView(ctx).apply {
+                                setVideoURI(media.uri)
+                                setOnPreparedListener { mp ->
+                                    mp.isLooping = true
+                                    start()
+                                }
                             }
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(videoAspectRatio, matchHeightConstraintsFirst = true)
+                    )
+                }
             } else {
                 AsyncImage(
                     model = media.uri,
