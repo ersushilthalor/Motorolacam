@@ -132,7 +132,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         preferences.photoMegapixelMode = next
         engine.photoMegapixelMode = next
         if (next == PhotoMegapixelMode.M50) {
-            showToast("50M Ultra HD Mode (4-Frame RAW Stacking)")
+            showToast("50M Computational Ultra HD")
         } else {
             showToast("12M Standard Mode")
         }
@@ -718,12 +718,12 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private fun executePhotoCapture() {
         val is50M = _photoMegapixelMode.value == PhotoMegapixelMode.M50
         if (is50M) {
-            showToast("Capturing 50M Ultra (4 RAW frames)...")
+            showToast("Processing 50MP Computational photo...")
         }
         engine.takePhoto { uri ->
             if (uri != null) {
                 if (is50M) {
-                    showToast("50MP Ultra High-Res saved to DCIM/Camera")
+                    showToast("50MP Computational photo saved to DCIM/Camera")
                 } else {
                     showToast("Saved to DCIM/Camera")
                 }

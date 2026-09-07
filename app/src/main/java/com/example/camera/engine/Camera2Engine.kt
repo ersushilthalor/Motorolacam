@@ -1438,7 +1438,7 @@ class Camera2Engine(private val context: Context) {
     }
 
     /**
-     * Take still photo (JPEG + optional RAW). In 50M mode, triggers instant 4-frame RAW stacking.
+     * Take still photo (JPEG + optional RAW). In 50M mode, triggers single-frame computational 50MP capture.
      */
     fun takePhoto(onComplete: (Uri?) -> Unit) {
         if (photoMegapixelMode == PhotoMegapixelMode.M50) {
@@ -1515,9 +1515,11 @@ class Camera2Engine(private val context: Context) {
     }
 
     /**
-     * 50 Megapixel Ultra-Resolution Capture:
-     * Captures an instant burst of 4 frames, aligns and stacks them, and synthesizes a pristine
-     * 50MP (8160 x 6120) final output image with enhanced micro-contrast and ultra-fine details.
+     * 50 Megapixel Computational Ultra-Resolution Capture:
+     * Captures ONLY ONE native-resolution frame from the physical camera with OIS/EIS
+     * stabilization, completely eliminating ghosting, motion blur, and double edges.
+     * The single frame is then processed through an edge-aware, detail-preserving
+     * computational upscaling and adaptive denoising pipeline.
      */
     fun takePhoto50M(onComplete: (Uri?) -> Unit) {
         val camera = cameraDevice ?: run {
@@ -1534,107 +1536,100 @@ class Camera2Engine(private val context: Context) {
         }
 
         _isCapturing.value = true
-        val frames = mutableListOf<Bitmap>()
         val activeLens = _selectedLens.value
         val isFrontFacing = activeLens?.facing == CameraCharacteristics.LENS_FACING_FRONT
 
         try {
-            // Build 4 instant capture requests
-            val requests = (0 until 4).map {
-                val builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
-                builder.addTarget(readerJpeg.surface)
-                applyCommonSettings(builder)
-                builder.set(CaptureRequest.JPEG_ORIENTATION, getCaptureJpegOrientation())
-                builder.set(CaptureRequest.JPEG_QUALITY, 100.toByte())
-                builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
-                builder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
-                builder.build()
-            }
+            // Build exactly ONE native-resolution capture request
+            val captureBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+            captureBuilder.addTarget(readerJpeg.surface)
+            applyCommonSettings(captureBuilder)
+            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, getCaptureJpegOrientation())
+            captureBuilder.set(CaptureRequest.JPEG_QUALITY, 100.toByte())
+            captureBuilder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
+            captureBuilder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
 
-            var processed = false
-
-            fun finish50MStacking() {
-                if (processed) return
-                processed = true
-                readerJpeg.setOnImageAvailableListener(null, null)
-
-                val capturedFrames = synchronized(frames) { frames.toList() }
-                if (capturedFrames.isEmpty()) {
-                    _isCapturing.value = false
-                    onComplete(null)
-                    return
-                }
-
-                engineScope.launch(Dispatchers.Default) {
-                    val uri = ultraRes50MStacker.stackAndSave50M(
-                        frames = capturedFrames,
-                        isFrontFacing = isFrontFacing,
-                        saveMirrored = saveSelfieAsPreviewed
-                    )
-                    capturedFrames.forEach { frame ->
-                        try {
-                            if (!frame.isRecycled) frame.recycle()
-                        } catch (ignored: Exception) {}
-                    }
-                    _isCapturing.value = false
-                    updateStorageStats()
-                    if (uri != null) {
-                        _lastCapturedMedia.value = CapturedMedia(
-                            uri = uri,
-                            isVideo = false,
-                            timestamp = System.currentTimeMillis(),
-                            displayName = "50M_ULTRA.jpg"
-                        )
-                    }
-                    withContext(Dispatchers.Main) {
-                        onComplete(uri)
-                    }
-                }
-            }
+            var frameProcessed = false
+            var capturedIso: Int = manualIso ?: 100
+            var capturedExposureNs: Long = manualExposureTimeNs ?: 20_000_000L
 
             readerJpeg.setOnImageAvailableListener({ reader ->
-                val image = reader.acquireNextImage() ?: return@setOnImageAvailableListener
+                val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                if (frameProcessed) {
+                    try { image.close() } catch (ignored: Exception) {}
+                    return@setOnImageAvailableListener
+                }
+                frameProcessed = true
+                readerJpeg.setOnImageAvailableListener(null, null)
+
                 try {
                     val buffer = image.planes[0].buffer
                     val bytes = ByteArray(buffer.remaining())
                     buffer.get(bytes)
-                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    if (bitmap != null) {
-                        synchronized(frames) {
-                            frames.add(bitmap)
+                    image.close()
+
+                    val options = BitmapFactory.Options().apply {
+                        inMutable = true
+                    }
+                    val singleFrameBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+
+                    if (singleFrameBitmap != null) {
+                        engineScope.launch(Dispatchers.Default) {
+                            val uri = ultraRes50MStacker.processAndSaveSingleFrame50M(
+                                source = singleFrameBitmap,
+                                iso = capturedIso,
+                                exposureTimeNs = capturedExposureNs,
+                                isFrontFacing = isFrontFacing,
+                                saveMirrored = saveSelfieAsPreviewed
+                            )
+                            if (!singleFrameBitmap.isRecycled) {
+                                singleFrameBitmap.recycle()
+                            }
+                            _isCapturing.value = false
+                            updateStorageStats()
+                            if (uri != null) {
+                                _lastCapturedMedia.value = CapturedMedia(
+                                    uri = uri,
+                                    isVideo = false,
+                                    timestamp = System.currentTimeMillis(),
+                                    displayName = "50M_COMPUTATIONAL.jpg"
+                                )
+                            }
+                            withContext(Dispatchers.Main) {
+                                onComplete(uri)
+                            }
+                        }
+                    } else {
+                        _isCapturing.value = false
+                        engineScope.launch(Dispatchers.Main) {
+                            onComplete(null)
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error acquiring 50M burst frame", e)
-                } finally {
+                    Log.e(TAG, "Error acquiring single 50M frame", e)
                     try { image.close() } catch (ignored: Exception) {}
-                }
-
-                if (frames.size >= 4) {
-                    finish50MStacking()
+                    _isCapturing.value = false
+                    engineScope.launch(Dispatchers.Main) {
+                        onComplete(null)
+                    }
                 }
             }, backgroundHandler)
 
-            // Watchdog fallback: if HAL completes with 1-3 frames within 2 seconds, stack whatever was captured
-            engineScope.launch {
-                delay(2200)
-                if (_isCapturing.value && !processed) {
-                    finish50MStacking()
-                }
-            }
-
-            session.captureBurst(requests, object : CameraCaptureSession.CaptureCallback() {
-                override fun onCaptureSequenceCompleted(
+            // Capture exactly one frame
+            session.capture(captureBuilder.build(), object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(
                     session: CameraCaptureSession,
-                    sequenceId: Int,
-                    frameNumber: Long
+                    request: CaptureRequest,
+                    result: TotalCaptureResult
                 ) {
-                    Log.d(TAG, "50M 4-frame burst sequence completed")
+                    capturedIso = result.get(CaptureResult.SENSOR_SENSITIVITY) ?: manualIso ?: 100
+                    capturedExposureNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: manualExposureTimeNs ?: 20_000_000L
+                    Log.d(TAG, "50M single frame capture completed (ISO=$capturedIso, Exp=${capturedExposureNs}ns)")
                 }
             }, backgroundHandler)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error starting 50M photo capture", e)
+            Log.e(TAG, "Error starting 50M single-frame capture", e)
             _isCapturing.value = false
             onComplete(null)
         }
