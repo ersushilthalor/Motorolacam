@@ -117,13 +117,10 @@ fun Viewfinder(
                     }
                 },
                 update = { textureView ->
-                    // In Video and Cinema modes on front camera:
-                    // By default, Android's SurfaceTexture automatically applies a horizontal mirror transform for front preview.
-                    // MediaRecorder, however, records the raw camera stream without mirroring.
-                    // By flipping scaleX in Video/Cinema modes, the viewfinder preview matches the unmirrored recorded video exactly:
-                    // selfie video is saved exactly as previewed, and neither is mirrored.
-                    val isFrontVideoOrCinema = isFrontCamera && (cameraMode == CameraMode.VIDEO || cameraMode == CameraMode.CINEMA)
-                    textureView.scaleX = if (isFrontVideoOrCinema) -1f else 1f
+                    // The live viewfinder must remain exactly as the camera normally previews it.
+                    // Do not apply any horizontal flip, matrix transformation, or scale transformation.
+                    textureView.scaleX = 1f
+                    textureView.scaleY = 1f
                 },
                 modifier = Modifier.fillMaxSize()
             )

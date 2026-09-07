@@ -21,7 +21,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -31,7 +30,7 @@ import com.example.camera.model.CameraResolution
 
 /**
  * Floating Liquid Frosted Glass Resolution & Frame Panel
- * Exactly styled as the reference screenshot.
+ * Styled in master UI design: dark glass, gold pill highlights, clear non-stretching typography.
  */
 @Composable
 fun FloatingVideoSettingsPanel(
@@ -54,24 +53,46 @@ fun FloatingVideoSettingsPanel(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp)
                 .clip(RoundedCornerShape(22.dp))
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xEA25262B),
-                            Color(0xD91A1B1F)
-                        )
-                    )
-                )
+                .background(Color(0xF0141418))
                 .border(
-                    BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
+                    BorderStroke(1.dp, Color.White.copy(alpha = 0.20f)),
                     shape = RoundedCornerShape(22.dp)
                 )
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .padding(horizontal = 18.dp, vertical = 14.dp)
                 .testTag("floating_video_settings_panel")
         ) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // Header with title and close button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "VIDEO FORMAT",
+                        color = Color(0xFFFFD54F),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 1.2.sp
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.12f))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
                 // Resolution Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -80,10 +101,10 @@ fun FloatingVideoSettingsPanel(
                 ) {
                     Text(
                         text = "Resolution",
-                        color = Color.White.copy(alpha = 0.85f),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.width(90.dp)
+                        color = Color.White.copy(alpha = 0.80f),
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.width(80.dp)
                     )
 
                     val resolutionOptions = listOf(
@@ -94,7 +115,7 @@ fun FloatingVideoSettingsPanel(
                     )
 
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         resolutionOptions.forEach { (label, res) ->
@@ -103,57 +124,83 @@ fun FloatingVideoSettingsPanel(
                                 (it.width == res.height && it.height == res.width)
                             } ?: (label == "4K")
 
-                            Text(
-                                text = label,
-                                color = if (isSelected) Color(0xFFFF7A00) else Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            Box(
                                 modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isSelected) Color(0xFF26210A) else Color.Transparent)
+                                    .border(
+                                        width = if (isSelected) 1.dp else 0.dp,
+                                        color = if (isSelected) Color(0xFFFFD54F) else Color.Transparent,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
                                     .clickable { onResolutionSelected(res) }
-                                    .padding(vertical = 4.dp, horizontal = 2.dp)
-                                    .testTag("res_option_$label")
-                            )
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    .testTag("res_option_$label"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = if (isSelected) Color(0xFFFFD54F) else Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
                 }
 
-                // Frame Row
+                // Frame Rate Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Frame",
-                        color = Color.White.copy(alpha = 0.85f),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.width(90.dp)
+                        text = "Framerate",
+                        color = Color.White.copy(alpha = 0.80f),
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.width(80.dp)
                     )
 
                     val fpsOptions = listOf(
                         "30fps" to 30,
                         "60fps" to 60,
-                        "120" to 120
+                        "120fps" to 120
                     )
 
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(22.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         fpsOptions.forEach { (label, fps) ->
                             val isSelected = currentFps == fps
 
-                            Text(
-                                text = label,
-                                color = if (isSelected) Color(0xFFFF7A00) else Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            Box(
                                 modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isSelected) Color(0xFF26210A) else Color.Transparent)
+                                    .border(
+                                        width = if (isSelected) 1.dp else 0.dp,
+                                        color = if (isSelected) Color(0xFFFFD54F) else Color.Transparent,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
                                     .clickable { onFpsSelected(fps) }
-                                    .padding(vertical = 4.dp, horizontal = 2.dp)
-                                    .testTag("fps_option_$label")
-                            )
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    .testTag("fps_option_$label"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = if (isSelected) Color(0xFFFFD54F) else Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
                 }
@@ -161,3 +208,4 @@ fun FloatingVideoSettingsPanel(
         }
     }
 }
+

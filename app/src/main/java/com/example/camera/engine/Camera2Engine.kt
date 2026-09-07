@@ -66,6 +66,7 @@ class Camera2Engine(private val context: Context) {
     private var imageReaderRaw: ImageReader? = null
     private var mediaRecorder: MediaRecorder? = null
     private var videoRecordingFileDescriptor: ParcelFileDescriptor? = null
+    private var currentRecordingTempFile: File? = null
     private var currentVideoUri: Uri? = null
 
     // State Flows
@@ -1825,10 +1826,10 @@ class Camera2Engine(private val context: Context) {
             ) ?: throw IllegalStateException("Cannot create MediaStore video record")
 
             currentVideoUri = uri
-            videoRecordingFileDescriptor = context.contentResolver.openFileDescriptor(uri, "rw")
 
-            val fd = videoRecordingFileDescriptor?.fileDescriptor
-                ?: throw IllegalStateException("Cannot open FileDescriptor for video")
+            // Record to a temporary cache file to allow in-place front camera mirroring
+            val tempFile = File(context.cacheDir, "rec_temp_${System.currentTimeMillis()}.mp4")
+            currentRecordingTempFile = tempFile
 
             @Suppress("DEPRECATION")
             mediaRecorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1841,7 +1842,7 @@ class Camera2Engine(private val context: Context) {
                 }
                 setVideoSource(MediaRecorder.VideoSource.SURFACE)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                setOutputFile(fd)
+                setOutputFile(tempFile.absolutePath)
                 setVideoEncodingBitRate(bitrate)
                 setVideoFrameRate(targetFps)
                 setVideoSize(videoRes.width, videoRes.height)
@@ -1974,23 +1975,58 @@ class Camera2Engine(private val context: Context) {
             videoRecordingFileDescriptor?.close()
             videoRecordingFileDescriptor = null
 
-            // Mark video as complete in MediaStore (API 29+)
-            currentVideoUri?.let { uri ->
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val values = ContentValues().apply {
-                        put(MediaStore.Video.Media.IS_PENDING, 0)
+            val tempFile = currentRecordingTempFile
+            currentRecordingTempFile = null
+
+            val activeLens = _selectedLens.value
+            val isFrontFacing = activeLens?.facing == CameraCharacteristics.LENS_FACING_FRONT
+
+            engineScope.launch(Dispatchers.IO) {
+                try {
+                    if (tempFile != null && tempFile.exists()) {
+                        // Apply in-place front camera video mirroring if front camera was recorded
+                        if (isFrontFacing && saveSelfieAsPreviewed) {
+                            Log.d(TAG, "Applying front camera horizontal mirroring to recorded video: ${tempFile.absolutePath}")
+                            Mp4VideoMirrorProcessor.applyHorizontalFlip(tempFile)
+                        }
+
+                        // Copy to MediaStore uri
+                        currentVideoUri?.let { uri ->
+                            context.contentResolver.openOutputStream(uri, "w")?.use { outStream ->
+                                tempFile.inputStream().use { inStream ->
+                                    inStream.copyTo(outStream)
+                                }
+                            }
+                        }
+
+                        // Clean up temporary file
+                        try {
+                            tempFile.delete()
+                        } catch (ignored: Exception) {}
                     }
-                    context.contentResolver.update(uri, values, null, null)
+
+                    // Mark video as complete in MediaStore (API 29+)
+                    currentVideoUri?.let { uri ->
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            val values = ContentValues().apply {
+                                put(MediaStore.Video.Media.IS_PENDING, 0)
+                            }
+                            context.contentResolver.update(uri, values, null, null)
+                        }
+                        _lastCapturedMedia.value = CapturedMedia(
+                            uri = uri,
+                            isVideo = true,
+                            timestamp = System.currentTimeMillis(),
+                            displayName = "Video"
+                        )
+                    }
+
+                    updateStorageStats()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error finalizing recorded video", e)
                 }
-                _lastCapturedMedia.value = CapturedMedia(
-                    uri = uri,
-                    isVideo = true,
-                    timestamp = System.currentTimeMillis(),
-                    displayName = "Video"
-                )
             }
 
-            updateStorageStats()
             restartCamera()
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping video recording", e)

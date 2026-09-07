@@ -143,27 +143,29 @@ fun PortraitControlBar(
                         label = "apertureText"
                     )
 
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(bgColor)
-                            .border(
-                                1.dp,
-                                if (isSelected) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.12f),
-                                RoundedCornerShape(14.dp)
-                            )
-                            .clickable { onApertureSelected(aperture) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                            .testTag("aperture_chip_$aperture"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = aperture,
-                            color = textColor,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Black else FontWeight.Medium
-                        )
-                    }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isSelected) Color(0xFF26210A) else Color.White.copy(alpha = 0.08f))
+                    .border(
+                        width = if (isSelected) 1.5.dp else 0.dp,
+                        color = if (isSelected) Color(0xFFFFD54F) else Color.Transparent,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .clickable { onApertureSelected(aperture) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .testTag("aperture_chip_$aperture"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = aperture,
+                    color = if (isSelected) Color(0xFFFFD54F) else Color.White,
+                    fontSize = 12.5.sp,
+                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
                 }
             }
 
