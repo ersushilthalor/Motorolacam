@@ -589,22 +589,57 @@ class Camera2Engine(private val context: Context) {
             val availableAf = chars.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
             val afModes = FocusMode.entries.filter { availableAf.contains(it.camera2Mode) }
 
-            // Photo JPEG Resolutions
-            val jpegSizes = map?.getOutputSizes(ImageFormat.JPEG) ?: emptyArray()
-            val photoResolutions = jpegSizes
+            // Photo JPEG Resolutions (incorporates native high-resolution & sensor remosaic modes)
+            val standardSizes = map?.getOutputSizes(ImageFormat.JPEG) ?: emptyArray()
+            val highResSizes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                try {
+                    map?.getHighResolutionOutputSizes(ImageFormat.JPEG) ?: emptyArray()
+                } catch (e: Exception) {
+                    emptyArray()
+                }
+            } else emptyArray()
+
+            val maxResSizes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    val maxResMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION)
+                    val m1 = maxResMap?.getOutputSizes(ImageFormat.JPEG) ?: emptyArray()
+                    val m2 = maxResMap?.getHighResolutionOutputSizes(ImageFormat.JPEG) ?: emptyArray()
+                    m1 + m2
+                } catch (e: Exception) {
+                    emptyArray()
+                }
+            } else emptyArray()
+
+            val allJpegSizes = (standardSizes + highResSizes + maxResSizes).distinctBy { "${it.width}x${it.height}" }
+            val photoResolutions = allJpegSizes
                 .sortedByDescending { it.width * it.height }
-                .distinctBy { "${it.width}x${it.height}" }
                 .map { CameraResolution(it.width, it.height, ImageFormat.JPEG, isRaw = false) }
 
             // RAW Resolutions
-            val rawSizes = if (hasRaw) {
+            val standardRawSizes = if (hasRaw) {
                 map?.getOutputSizes(ImageFormat.RAW_SENSOR) ?: emptyArray()
-            } else {
-                emptyArray()
-            }
-            val rawResolutions = rawSizes
+            } else emptyArray()
+            val highResRawSizes = if (hasRaw && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                try {
+                    map?.getHighResolutionOutputSizes(ImageFormat.RAW_SENSOR) ?: emptyArray()
+                } catch (e: Exception) {
+                    emptyArray()
+                }
+            } else emptyArray()
+            val maxResRawSizes = if (hasRaw && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    val maxResMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION)
+                    val m1 = maxResMap?.getOutputSizes(ImageFormat.RAW_SENSOR) ?: emptyArray()
+                    val m2 = maxResMap?.getHighResolutionOutputSizes(ImageFormat.RAW_SENSOR) ?: emptyArray()
+                    m1 + m2
+                } catch (e: Exception) {
+                    emptyArray()
+                }
+            } else emptyArray()
+
+            val allRawSizes = (standardRawSizes + highResRawSizes + maxResRawSizes).distinctBy { "${it.width}x${it.height}" }
+            val rawResolutions = allRawSizes
                 .sortedByDescending { it.width * it.height }
-                .distinctBy { "${it.width}x${it.height}" }
                 .map { CameraResolution(it.width, it.height, ImageFormat.RAW_SENSOR, isRaw = true) }
 
             // Video Resolutions
@@ -911,22 +946,30 @@ class Camera2Engine(private val context: Context) {
         imageReaderJpeg?.close()
         imageReaderRaw?.close()
 
-        val photoRes = _selectedPhotoResolution.value ?: CameraResolution(4000, 3000)
+        val caps = _capabilities.value
+        val is50MMode = photoMegapixelMode == PhotoMegapixelMode.M50
+        val photoRes = if (is50MMode) {
+            caps.supportedPhotoResolutions.maxByOrNull { it.width * it.height }
+                ?: _selectedPhotoResolution.value
+                ?: CameraResolution(4000, 3000)
+        } else {
+            _selectedPhotoResolution.value ?: CameraResolution(4000, 3000)
+        }
+
         imageReaderJpeg = ImageReader.newInstance(
             photoRes.width,
             photoRes.height,
             ImageFormat.JPEG,
-            6
+            4
         )
 
-        val caps = _capabilities.value
         if (caps.supportsRaw && isRawCaptureEnabled && caps.supportedRawResolutions.isNotEmpty()) {
             val rawRes = caps.supportedRawResolutions.first()
             imageReaderRaw = ImageReader.newInstance(
                 rawRes.width,
                 rawRes.height,
                 ImageFormat.RAW_SENSOR,
-                6
+                4
             )
         }
     }
@@ -1549,6 +1592,19 @@ class Camera2Engine(private val context: Context) {
             captureBuilder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
             captureBuilder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
 
+            // Enable ultra-high resolution sensor remosaic mode if physical hardware supports it (Android 12+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    val chars = cameraManager.getCameraCharacteristics(camera.id)
+                    val sensorCaps = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: intArrayOf()
+                    if (sensorCaps.contains(CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR)) {
+                        captureBuilder.set(CaptureRequest.SENSOR_PIXEL_MODE, CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Hardware sensor ultra-high resolution mode not applicable", e)
+                }
+            }
+
             var frameProcessed = false
             var capturedIso: Int = manualIso ?: 100
             var capturedExposureNs: Long = manualExposureTimeNs ?: 20_000_000L
@@ -1568,8 +1624,11 @@ class Camera2Engine(private val context: Context) {
                     buffer.get(bytes)
                     image.close()
 
+                    // Ensure maximum photographic quality with zero downsampling
                     val options = BitmapFactory.Options().apply {
                         inMutable = true
+                        inSampleSize = 1
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
                     }
                     val rawBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
 
@@ -2019,18 +2078,39 @@ class Camera2Engine(private val context: Context) {
             engineScope.launch(Dispatchers.IO) {
                 try {
                     if (tempFile != null && tempFile.exists()) {
+                        // For front camera, mirror video output so final playback matches expectation
+                        val fileToSave = if (isFrontFacing) {
+                            val mirroredFile = File(context.cacheDir, "rec_mirrored_${System.currentTimeMillis()}.mp4")
+                            val success = try {
+                                VideoMirrorTranscoder().mirrorVideo(tempFile, mirroredFile)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Video mirror transcoder error, falling back to temp file", e)
+                                false
+                            }
+                            if (success && mirroredFile.exists() && mirroredFile.length() > 0) {
+                                mirroredFile
+                            } else {
+                                tempFile
+                            }
+                        } else {
+                            tempFile
+                        }
+
                         // Copy to MediaStore uri
                         currentVideoUri?.let { uri ->
                             context.contentResolver.openOutputStream(uri, "w")?.use { outStream ->
-                                tempFile.inputStream().use { inStream ->
+                                fileToSave.inputStream().use { inStream ->
                                     inStream.copyTo(outStream)
                                 }
                             }
                         }
 
-                        // Clean up temporary file
+                        // Clean up temporary files
                         try {
                             tempFile.delete()
+                            if (fileToSave != tempFile) {
+                                fileToSave.delete()
+                            }
                         } catch (ignored: Exception) {}
                     }
 
@@ -2046,7 +2126,8 @@ class Camera2Engine(private val context: Context) {
                             uri = uri,
                             isVideo = true,
                             timestamp = System.currentTimeMillis(),
-                            displayName = "Video"
+                            displayName = "Video",
+                            isFrontCamera = isFrontFacing
                         )
                     }
 

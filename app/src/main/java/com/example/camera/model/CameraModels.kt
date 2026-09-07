@@ -263,5 +263,6 @@ data class CapturedMedia(
     val uri: android.net.Uri,
     val isVideo: Boolean,
     val timestamp: Long,
-    val displayName: String
+    val displayName: String,
+    val isFrontCamera: Boolean = false
 )
