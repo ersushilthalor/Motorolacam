@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import com.example.camera.engine.DualCameraManager
+
 enum class ProControlTab(val label: String) {
     EXPOSURE("EV"),
     ISO("ISO"),
@@ -33,6 +35,20 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     val engine = Camera2Engine(application.applicationContext)
     private val portraitProcessor by lazy { PortraitProcessor(application.applicationContext) }
     private val preferences = CameraPreferences(application.applicationContext)
+
+    val dualCameraManager by lazy { DualCameraManager(application.applicationContext) }
+    val dualVideoConfig: StateFlow<DualVideoConfig> by lazy { dualCameraManager.config }
+
+    val dollyZoomState: StateFlow<DollyZoomState> = engine.dollyZoomEngine.dollyState
+
+    private val _nightConfig = MutableStateFlow(preferences.nightConfig)
+    val nightConfig: StateFlow<NightConfig> = _nightConfig.asStateFlow()
+    val nightProgress: StateFlow<NightCaptureProgress> = engine.nightProgress
+
+    val hybridStabilizationConfig: StateFlow<HybridStabilizationConfig> = engine.hybridStabilizationConfig
+
+    private val _tapFocusConfig = MutableStateFlow(preferences.tapFocusConfig)
+    val tapFocusConfig: StateFlow<TapFocusConfig> = _tapFocusConfig.asStateFlow()
 
     // Mode
     private val _cameraMode = MutableStateFlow(preferences.cameraMode)
@@ -202,11 +218,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val _manualFocusDistance = MutableStateFlow(0f)
     val manualFocusDistance: StateFlow<Float> = _manualFocusDistance.asStateFlow()
 
-    private val _isAeLocked = MutableStateFlow(false)
-    val isAeLocked: StateFlow<Boolean> = _isAeLocked.asStateFlow()
-
-    private val _isAfLocked = MutableStateFlow(false)
-    val isAfLocked: StateFlow<Boolean> = _isAfLocked.asStateFlow()
+    val isAeLocked: StateFlow<Boolean> = engine.isAeLockedFlow
+    val isAfLocked: StateFlow<Boolean> = engine.isAfLockedFlow
 
     private val _isRawCaptureEnabled = MutableStateFlow(preferences.isRawEnabled)
     val isRawCaptureEnabled: StateFlow<Boolean> = _isRawCaptureEnabled.asStateFlow()
@@ -574,16 +587,14 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun toggleAeLock() {
-        val next = !_isAeLocked.value
-        _isAeLocked.value = next
+        val next = !engine.isAeLockedFlow.value
         engine.isAeLocked = next
         engine.updatePreviewSettings()
         showToast(if (next) "Exposure Locked" else "Exposure Unlocked")
     }
 
     fun toggleAfLock() {
-        val next = !_isAfLocked.value
-        _isAfLocked.value = next
+        val next = !engine.isAfLockedFlow.value
         engine.isAfLocked = next
         engine.updatePreviewSettings()
         showToast(if (next) "Focus Locked" else "Focus Unlocked")
@@ -673,15 +684,72 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         _isMediaViewerOpen.value = open
     }
 
-    fun onTapToFocus(point: Offset, normX: Float, normY: Float) {
+    fun onTapToFocus(point: Offset, normX: Float, normY: Float, isLock: Boolean = false) {
         _focusRingPoint.value = point
-        engine.triggerFocusAndMeter(normX, normY)
+        engine.triggerFocusAndMeter(normX, normY, isLock)
 
-        focusDismissJob?.cancel()
-        focusDismissJob = viewModelScope.launch {
-            delay(2000)
-            _focusRingPoint.value = null
+        if (!isLock) {
+            focusDismissJob?.cancel()
+            focusDismissJob = viewModelScope.launch {
+                delay(2400)
+                _focusRingPoint.value = null
+            }
         }
+    }
+
+    fun toggleAeAfLock() {
+        engine.toggleAeAfLock()
+        val locked = engine.isAeLockedFlow.value
+        showToast(if (locked) "AE/AF LOCKED" else "AE/AF UNLOCKED")
+    }
+
+    fun setNightConfig(config: NightConfig) {
+        _nightConfig.value = config
+        preferences.nightConfig = config
+    }
+
+    fun setHybridStabilizationConfig(config: HybridStabilizationConfig) {
+        engine.updateHybridStabilizationConfig(config)
+        preferences.hybridStabilizationConfig = config
+    }
+
+    fun setTapFocusConfig(config: TapFocusConfig) {
+        _tapFocusConfig.value = config
+        preferences.tapFocusConfig = config
+    }
+
+    fun calibrateDollyZoom() {
+        engine.calibrateDollyZoom()
+        showToast("Dolly Subject Calibrated")
+    }
+
+    fun resetDollyZoom() {
+        engine.resetDollyZoom()
+        showToast("Dolly Zoom Reset")
+    }
+
+    fun updateDualVideoConfig(config: DualVideoConfig) {
+        dualCameraManager.updateConfig(config)
+        preferences.dualVideoConfig = config
+    }
+
+    fun triggerNightCapture() {
+        if (engine.isCapturing.value) return
+        val config = _nightConfig.value
+        engine.takeNightPhoto(
+            durationSeconds = config.durationSeconds,
+            isAntiGhosting = config.antiGhostingEnabled,
+            noiseSuppression = config.noiseSuppression,
+            shadowLift = config.shadowLift,
+            onProgress = {},
+            onComplete = { uri ->
+                if (uri != null) {
+                    showToast("Night photo captured")
+                } else {
+                    showToast("Night capture failed")
+                }
+            }
+        )
     }
 
     fun setPortraitBlurStrength(strength: Float) {
@@ -716,7 +784,8 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         when (_cameraMode.value) {
             CameraMode.PHOTO, CameraMode.MORE -> triggerPhotoCapture()
             CameraMode.PORTRAIT -> triggerPortraitCapture()
-            CameraMode.VIDEO, CameraMode.CINEMA -> triggerVideoCapture()
+            CameraMode.VIDEO, CameraMode.CINEMA, CameraMode.DOLLY_ZOOM, CameraMode.DUAL_VIDEO -> triggerVideoCapture()
+            CameraMode.NIGHT -> triggerNightCapture()
         }
     }
 

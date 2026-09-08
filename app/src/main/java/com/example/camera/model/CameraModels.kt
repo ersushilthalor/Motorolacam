@@ -8,6 +8,9 @@ enum class CameraMode(val title: String) {
     PORTRAIT("Portrait"),
     VIDEO("Video"),
     CINEMA("Cinema"),
+    NIGHT("Night"),
+    DOLLY_ZOOM("Dolly"),
+    DUAL_VIDEO("Dual"),
     MORE("More")
 }
 
@@ -266,3 +269,76 @@ data class CapturedMedia(
     val displayName: String,
     val isFrontCamera: Boolean = false
 )
+
+enum class DollyDirection(val label: String) {
+    AUTO("Auto Compensation"),
+    PUSH_IN("Push In (Walk Closer)"),
+    PULL_OUT("Pull Out (Walk Away)")
+}
+
+data class DollyZoomState(
+    val isCalibrated: Boolean = false,
+    val targetDistanceMeters: Float = 1.0f,
+    val initialZoom: Float = 1.0f,
+    val currentDistanceMeters: Float = 1.0f,
+    val targetZoom: Float = 1.0f,
+    val smoothedZoom: Float = 1.0f,
+    val isTracking: Boolean = true,
+    val direction: DollyDirection = DollyDirection.AUTO,
+    val statusPrompt: String = "Lock on subject to start Dolly Zoom"
+)
+
+enum class DualVideoLayout(val label: String) {
+    SIDE_BY_SIDE("Side by Side"),
+    TOP_BOTTOM("Top / Bottom"),
+    PIP("Picture in Picture")
+}
+
+data class DualVideoConfig(
+    val layout: DualVideoLayout = DualVideoLayout.SIDE_BY_SIDE,
+    val primaryCameraId: String = "0",
+    val secondaryCameraId: String = "1",
+    val isConcurrentSupported: Boolean = false,
+    val primaryZoom: Float = 1.0f,
+    val secondaryZoom: Float = 1.0f,
+    val primaryEv: Int = 0,
+    val secondaryEv: Int = 0,
+    val statusMessage: String = ""
+)
+
+data class NightConfig(
+    val durationSeconds: Int = 2, // 1 to 5 seconds
+    val multiFrameFusionEnabled: Boolean = true,
+    val antiGhostingEnabled: Boolean = true,
+    val noiseSuppression: Float = 0.85f,
+    val shadowLift: Float = 1.25f,
+    val isMultiFrameFusion: Boolean = true,
+    val isAntiGhostingEnabled: Boolean = true,
+    val noiseSuppressionStrength: Float = 0.85f,
+    val shadowLiftFactor: Float = 1.25f
+)
+
+data class NightCaptureProgress(
+    val isCapturing: Boolean = false,
+    val remainingSeconds: Float = 0f,
+    val progress: Float = 0f,
+    val statusText: String = "Hold device steady..."
+)
+
+data class HybridStabilizationConfig(
+    val isHybridEnabled: Boolean = true,
+    val isOisPreferred: Boolean = true,
+    val isEisPreferred: Boolean = true,
+    val isAdaptiveFpsLens: Boolean = true,
+    val oisHardwareStatus: String = "Detecting",
+    val eisHardwareStatus: String = "Detecting"
+)
+
+data class TapFocusConfig(
+    val isTapToFocusExposureEnabled: Boolean = true,
+    val isTapToFocusEnabled: Boolean = true,
+    val isAeAfLockEnabled: Boolean = true,
+    val isSunExposureSliderEnabled: Boolean = true,
+    val autoDismissReticle: Boolean = true
+)
+

@@ -146,6 +146,13 @@ fun CameraScreen(
     val displayedLenses by viewModel.displayedLenses.collectAsStateWithLifecycle()
     val selectedLens by viewModel.selectedLens.collectAsStateWithLifecycle()
 
+    val dollyZoomState by viewModel.dollyZoomState.collectAsStateWithLifecycle()
+    val dualVideoConfig by viewModel.dualVideoConfig.collectAsStateWithLifecycle()
+    val nightConfig by viewModel.nightConfig.collectAsStateWithLifecycle()
+    val nightProgress by viewModel.nightProgress.collectAsStateWithLifecycle()
+    val hybridStabilizationConfig by viewModel.hybridStabilizationConfig.collectAsStateWithLifecycle()
+    val tapFocusConfig by viewModel.tapFocusConfig.collectAsStateWithLifecycle()
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -170,6 +177,13 @@ fun CameraScreen(
             onZoomChange = { zoom ->
                 viewModel.setZoom(zoom, isPresetTap = false)
             },
+            onExposureCompensationChange = { ev ->
+                viewModel.setExposureCompensation(ev)
+            },
+            onToggleLock = {
+                viewModel.toggleAeAfLock()
+            },
+            currentExposureCompensation = exposureCompensation,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -177,6 +191,50 @@ fun CameraScreen(
         if (cameraMode == CameraMode.CINEMA) {
             CinemaAssistOverlays(
                 cinemaConfig = cinemaConfig,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // 1c. Dolly Zoom Real-Time Tracking & Alignment Reticle Overlay
+        if (cameraMode == CameraMode.DOLLY_ZOOM) {
+            DollyZoomOverlay(
+                dollyState = dollyZoomState,
+                onCalibrateSubject = { viewModel.calibrateDollyZoom() },
+                onResetDolly = { viewModel.resetDollyZoom() },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // 1d. Real Dual Video Multi-Camera Viewfinder & Split Pipeline
+        if (cameraMode == CameraMode.DUAL_VIDEO) {
+            DualVideoViewfinder(
+                config = dualVideoConfig,
+                onPrimarySurfaceReady = { surface ->
+                    viewModel.dualCameraManager.setPrimarySurface(surface)
+                },
+                onSecondarySurfaceReady = { surface ->
+                    viewModel.dualCameraManager.setSecondarySurface(surface)
+                },
+                onLayoutChanged = { layout ->
+                    viewModel.updateDualVideoConfig(dualVideoConfig.copy(layout = layout))
+                },
+                onSwapCameras = {
+                    val p = dualVideoConfig.primaryCameraId
+                    val s = dualVideoConfig.secondaryCameraId
+                    viewModel.updateDualVideoConfig(dualVideoConfig.copy(primaryCameraId = s, secondaryCameraId = p))
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // 1e. Computational Night Mode Long-Exposure HUD
+        if (cameraMode == CameraMode.NIGHT) {
+            NightModeOverlay(
+                config = nightConfig,
+                captureProgress = nightProgress,
+                onDurationChange = { dur ->
+                    viewModel.setNightConfig(nightConfig.copy(durationSeconds = dur))
+                },
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -359,8 +417,15 @@ fun CameraScreen(
             },
             onSelectNight = {
                 viewModel.setMoreModesOpen(false)
-                viewModel.setCameraMode(CameraMode.PHOTO)
-                viewModel.showToast("Night Mode Active")
+                viewModel.setCameraMode(CameraMode.NIGHT)
+            },
+            onSelectDollyZoom = {
+                viewModel.setMoreModesOpen(false)
+                viewModel.setCameraMode(CameraMode.DOLLY_ZOOM)
+            },
+            onSelectDualVideo = {
+                viewModel.setMoreModesOpen(false)
+                viewModel.setCameraMode(CameraMode.DUAL_VIDEO)
             },
             onOpenSettings = {
                 viewModel.setMoreModesOpen(false)
@@ -471,6 +536,9 @@ fun CameraScreen(
             cinemaConfig = cinemaConfig,
             cinemaCapabilities = cinemaCapabilities,
             viewfinderResolution = viewfinderResolution,
+            hybridStabilizationConfig = hybridStabilizationConfig,
+            nightConfig = nightConfig,
+            tapFocusConfig = tapFocusConfig,
             onLensSelected = { viewModel.selectLens(it) },
             onForceDeepScan = { viewModel.forceDeepScanLenses() },
             onPhotoResolutionSelected = { viewModel.selectPhotoResolution(it) },
@@ -480,6 +548,9 @@ fun CameraScreen(
             onVideoFpsSelected = { viewModel.setVideoFps(it) },
             onVideoBitrateSelected = { viewModel.setVideoBitrate(it) },
             onStabilizationToggle = { viewModel.setVideoStabilization(it) },
+            onHybridStabilizationChange = { viewModel.setHybridStabilizationConfig(it) },
+            onNightConfigChange = { viewModel.setNightConfig(it) },
+            onTapFocusConfigChange = { viewModel.setTapFocusConfig(it) },
             onAudioToggle = { viewModel.toggleAudio() },
             onRawToggle = { viewModel.toggleRawCapture() },
             onSaveSelfieAsPreviewedToggle = { viewModel.setSaveSelfieAsPreviewed(it) },

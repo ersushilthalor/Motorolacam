@@ -132,6 +132,26 @@ class Camera2Engine(private val context: Context) {
     var saveSelfieAsPreviewed: Boolean = true
     var viewfinderResolution: ViewfinderResolution = ViewfinderResolution.NORMAL
 
+    private val _isAeLockedFlow = MutableStateFlow(false)
+    val isAeLockedFlow: StateFlow<Boolean> = _isAeLockedFlow.asStateFlow()
+
+    private val _isAfLockedFlow = MutableStateFlow(false)
+    val isAfLockedFlow: StateFlow<Boolean> = _isAfLockedFlow.asStateFlow()
+
+    val dollyZoomEngine = DollyZoomEngine()
+    val nightFusionProcessor = NightFusionProcessor()
+
+    private val _hybridStabilizationConfig = MutableStateFlow(HybridStabilizationConfig())
+    val hybridStabilizationConfig: StateFlow<HybridStabilizationConfig> = _hybridStabilizationConfig.asStateFlow()
+
+    private val _nightProgress = MutableStateFlow(NightCaptureProgress())
+    val nightProgress: StateFlow<NightCaptureProgress> = _nightProgress.asStateFlow()
+
+    fun updateHybridStabilizationConfig(config: HybridStabilizationConfig) {
+        _hybridStabilizationConfig.value = config
+        updatePreviewSettings()
+    }
+
     // Camera Session Concurrency & State Guard
     private val cameraLifecycleLock = Any()
     @Volatile
@@ -1020,6 +1040,7 @@ class Camera2Engine(private val context: Context) {
 
     private var lastCaptureResult: TotalCaptureResult? = null
     private var lastHdrUpdateRequestTime = 0L
+    private var lastDollyApplyTime = 0L
 
     private val captureCallback = object : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(
@@ -1029,6 +1050,48 @@ class Camera2Engine(private val context: Context) {
         ) {
             super.onCaptureCompleted(session, request, result)
             lastCaptureResult = result
+
+            if (currentMode == CameraMode.DOLLY_ZOOM) {
+                val lens = _selectedLens.value
+                if (lens != null) {
+                    try {
+                        val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+                        val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+                        val maxZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 8f
+                        val newZoom = dollyZoomEngine.processFrame(result, sensorRect, maxZoom)
+                        if (newZoom != null) {
+                            applyContinuousDollyZoom(newZoom)
+                        }
+                    } catch (ignored: Exception) {}
+                }
+            }
+        }
+    }
+
+    private fun applyContinuousDollyZoom(zoom: Float) {
+        val now = System.currentTimeMillis()
+        if (now - lastDollyApplyTime < 45) return
+        lastDollyApplyTime = now
+
+        val session = captureSession ?: return
+        val builder = previewRequestBuilder ?: return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, zoom)
+            } else {
+                val chars = cameraManager.getCameraCharacteristics(_selectedLens.value?.cameraId ?: "0")
+                val activeArray = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+                if (activeArray != null) {
+                    val cropW = (activeArray.width() / zoom).toInt()
+                    val cropH = (activeArray.height() / zoom).toInt()
+                    val cropX = (activeArray.width() - cropW) / 2
+                    val cropY = (activeArray.height() - cropH) / 2
+                    builder.set(CaptureRequest.SCALER_CROP_REGION, Rect(cropX, cropY, cropX + cropW, cropY + cropH))
+                }
+            }
+            session.setRepeatingRequest(builder.build(), captureCallback, backgroundHandler)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error applying continuous dolly zoom", e)
         }
     }
 
@@ -1082,7 +1145,8 @@ class Camera2Engine(private val context: Context) {
                 builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, manualFocusDistance)
             }
             FocusMode.CONTINUOUS -> {
-                val mode = if (currentMode == CameraMode.VIDEO) {
+                val mode = if (currentMode == CameraMode.VIDEO || currentMode == CameraMode.CINEMA ||
+                    currentMode == CameraMode.DOLLY_ZOOM || currentMode == CameraMode.DUAL_VIDEO) {
                     CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
                 } else {
                     CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
@@ -1097,19 +1161,39 @@ class Camera2Engine(private val context: Context) {
             }
         }
 
-        // Stabilization
-        if (currentMode == CameraMode.VIDEO) {
-            if (isVideoStabilizationEnabled) {
-                if (caps.supportsEis) {
+        // Coordinated Hybrid OIS + EIS Stabilization
+        val isVideoMode = currentMode == CameraMode.VIDEO || currentMode == CameraMode.CINEMA ||
+                currentMode == CameraMode.DUAL_VIDEO || currentMode == CameraMode.DOLLY_ZOOM
+
+        val hybridConfig = _hybridStabilizationConfig.value
+        if (isVideoMode) {
+            if (isVideoStabilizationEnabled && hybridConfig.isHybridEnabled) {
+                // Optical Image Stabilization (Physical hardware gyro compensation)
+                if (caps.supportsOis && hybridConfig.isOisPreferred) {
+                    builder.set(
+                        CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                        CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON
+                    )
+                } else {
+                    builder.set(
+                        CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                        CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF
+                    )
+                }
+
+                // Electronic Image Stabilization (Digital frame margin compensation)
+                val isHighFps4k = (_selectedVideoResolution.value?.width ?: 0) >= 3840 && videoFps >= 60
+                val allowEis = caps.supportsEis && hybridConfig.isEisPreferred && (!hybridConfig.isAdaptiveFpsLens || !isHighFps4k)
+
+                if (allowEis) {
                     builder.set(
                         CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
                         CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
                     )
-                }
-                if (caps.supportsOis) {
+                } else {
                     builder.set(
-                        CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
-                        CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON
+                        CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                        CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF
                     )
                 }
             } else {
@@ -1122,6 +1206,18 @@ class Camera2Engine(private val context: Context) {
                     CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF
                 )
             }
+        } else {
+            // In Still Photo / Night / Portrait: engage OIS for razor sharp multi-frame images
+            if (caps.supportsOis) {
+                builder.set(
+                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON
+                )
+            }
+            builder.set(
+                CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+            )
         }
 
         // Color profiles & Tonemap
@@ -1365,9 +1461,9 @@ class Camera2Engine(private val context: Context) {
     }
 
     /**
-     * Tap to Focus & Meter
+     * Tap to Focus & Meter with optional AE/AF Lock
      */
-    fun triggerFocusAndMeter(normX: Float, normY: Float) {
+    fun triggerFocusAndMeter(normX: Float, normY: Float, isLock: Boolean = false) {
         val lens = _selectedLens.value ?: return
         val session = captureSession ?: return
         val builder = previewRequestBuilder ?: return
@@ -1376,7 +1472,7 @@ class Camera2Engine(private val context: Context) {
             val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
             val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return
 
-            val focusAreaSize = 200
+            val focusAreaSize = 240
             val centerX = (normX * sensorRect.width()).toInt().coerceIn(0, sensorRect.width())
             val centerY = (normY * sensorRect.height()).toInt().coerceIn(0, sensorRect.height())
 
@@ -1392,6 +1488,14 @@ class Camera2Engine(private val context: Context) {
             builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO)
             builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START)
 
+            if (isLock) {
+                isAeLocked = true
+                isAfLocked = true
+                _isAeLockedFlow.value = true
+                _isAfLockedFlow.value = true
+                builder.set(CaptureRequest.CONTROL_AE_LOCK, true)
+            }
+
             session.capture(builder.build(), object : CameraCaptureSession.CaptureCallback() {
                 override fun onCaptureCompleted(
                     session: CameraCaptureSession,
@@ -1399,12 +1503,56 @@ class Camera2Engine(private val context: Context) {
                     result: TotalCaptureResult
                 ) {
                     builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE)
+                    if (isLock) {
+                        builder.set(CaptureRequest.CONTROL_AE_LOCK, true)
+                    }
                     session.setRepeatingRequest(builder.build(), captureCallback, backgroundHandler)
                 }
             }, backgroundHandler)
         } catch (e: Exception) {
             Log.e(TAG, "Tap to focus failed", e)
         }
+    }
+
+    fun toggleAeAfLock() {
+        val session = captureSession ?: return
+        val builder = previewRequestBuilder ?: return
+        val nextLock = !(isAeLocked || isAfLocked)
+        isAeLocked = nextLock
+        isAfLocked = nextLock
+        _isAeLockedFlow.value = nextLock
+        _isAfLockedFlow.value = nextLock
+
+        builder.set(CaptureRequest.CONTROL_AE_LOCK, nextLock)
+        if (!nextLock) {
+            builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+            builder.set(CaptureRequest.CONTROL_AF_REGIONS, null)
+            builder.set(CaptureRequest.CONTROL_AE_REGIONS, null)
+        }
+        try {
+            session.setRepeatingRequest(builder.build(), captureCallback, backgroundHandler)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to toggle lock", e)
+        }
+    }
+
+    fun calibrateDollyZoom() {
+        val lens = _selectedLens.value ?: return
+        val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+        val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+        val lastResult = lastCaptureResult
+        val faces = lastResult?.get(CaptureResult.STATISTICS_FACES)
+        val diopters = lastResult?.get(CaptureResult.LENS_FOCUS_DISTANCE) ?: 0f
+        dollyZoomEngine.calibrate(
+            currentZoom = currentZoom,
+            currentFace = faces?.firstOrNull(),
+            lensFocusDiopters = diopters,
+            sensorRect = sensorRect
+        )
+    }
+
+    fun resetDollyZoom() {
+        dollyZoomEngine.reset()
     }
 
     private fun getDeviceRotationDegrees(): Int {
@@ -1470,6 +1618,177 @@ class Camera2Engine(private val context: Context) {
         }
         val deviceRotation = getDeviceRotationDegrees()
         return calculateOrientation(sensorOrientation, isFront, deviceRotation)
+    }
+
+    /**
+     * Upgraded Computational Night Mode Multi-Frame Capture & Fusion.
+     * Captures multiple aligned burst frames across 1-5 seconds, reduces hand-shake ghosting,
+     * boosts signal-to-noise ratio by temporal averaging, and applies adaptive tone mapping.
+     */
+    fun takeNightPhoto(
+        durationSeconds: Int = 2,
+        isAntiGhosting: Boolean = true,
+        noiseSuppression: Float = 0.85f,
+        shadowLift: Float = 1.25f,
+        onProgress: (NightCaptureProgress) -> Unit = {},
+        onComplete: (Uri?) -> Unit
+    ) {
+        val camera = cameraDevice ?: run {
+            onComplete(null)
+            return
+        }
+        val session = captureSession ?: run {
+            onComplete(null)
+            return
+        }
+        val readerJpeg = imageReaderJpeg ?: run {
+            onComplete(null)
+            return
+        }
+
+        _isCapturing.value = true
+        val targetFrameCount = (durationSeconds * 3).coerceIn(4, 12)
+        val collectedBitmaps = java.util.Collections.synchronizedList(mutableListOf<Bitmap>())
+        val isCompleted = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        val initialProgress = NightCaptureProgress(
+            isCapturing = true,
+            remainingSeconds = durationSeconds.toFloat(),
+            progress = 0.05f,
+            statusText = "Hold device steady... Capturing burst"
+        )
+        _nightProgress.value = initialProgress
+        onProgress(initialProgress)
+
+        // Countdown timer job
+        val countdownJob = engineScope.launch {
+            val totalMs = durationSeconds * 1000L
+            val stepMs = 100L
+            var elapsedMs = 0L
+            while (elapsedMs < totalMs && !isCompleted.get()) {
+                delay(stepMs)
+                elapsedMs += stepMs
+                val remSec = max(0f, (totalMs - elapsedMs) / 1000f)
+                val prog = (elapsedMs.toFloat() / totalMs * 0.5f).coerceIn(0.05f, 0.5f)
+                val status = "Hold device steady (${collectedBitmaps.size}/$targetFrameCount frames)"
+                val current = NightCaptureProgress(
+                    isCapturing = true,
+                    remainingSeconds = remSec,
+                    progress = prog,
+                    statusText = status
+                )
+                _nightProgress.value = current
+                withContext(Dispatchers.Main) { onProgress(current) }
+            }
+        }
+
+        readerJpeg.setOnImageAvailableListener({ reader ->
+            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            try {
+                val buffer = image.planes[0].buffer
+                val bytes = ByteArray(buffer.remaining())
+                buffer.get(bytes)
+                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bmp != null) {
+                    collectedBitmaps.add(bmp)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error acquiring night burst frame", e)
+            } finally {
+                image.close()
+            }
+
+            if (collectedBitmaps.size >= targetFrameCount && isCompleted.compareAndSet(false, true)) {
+                countdownJob.cancel()
+                finalizeNightCapture(
+                    collectedBitmaps,
+                    noiseSuppression,
+                    shadowLift,
+                    isAntiGhosting,
+                    onProgress,
+                    onComplete
+                )
+            }
+        }, backgroundHandler)
+
+        try {
+            val requests = mutableListOf<CaptureRequest>()
+            val orientation = getCaptureJpegOrientation()
+            for (i in 0 until targetFrameCount) {
+                val builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+                builder.addTarget(readerJpeg.surface)
+                applyCommonSettings(builder)
+                builder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
+                builder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_HIGH_QUALITY)
+                builder.set(CaptureRequest.JPEG_ORIENTATION, orientation)
+                builder.set(CaptureRequest.JPEG_QUALITY, 98.toByte())
+                requests.add(builder.build())
+            }
+            session.captureBurst(requests, null, backgroundHandler)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to submit night burst requests", e)
+            isCompleted.set(true)
+            countdownJob.cancel()
+            _isCapturing.value = false
+            _nightProgress.value = NightCaptureProgress()
+            onComplete(null)
+        }
+    }
+
+    private fun finalizeNightCapture(
+        frames: List<Bitmap>,
+        noiseSuppression: Float,
+        shadowLift: Float,
+        isAntiGhosting: Boolean,
+        onProgress: (NightCaptureProgress) -> Unit,
+        onComplete: (Uri?) -> Unit
+    ) {
+        engineScope.launch(Dispatchers.Default) {
+            val progressUpdate: (Float) -> Unit = { p ->
+                val overall = 0.5f + (p * 0.45f)
+                val status = if (p < 0.5f) "Aligning Frames & Anti-Ghosting..." else "Adaptive Tone Mapping..."
+                val state = NightCaptureProgress(
+                    isCapturing = true,
+                    remainingSeconds = 0f,
+                    progress = overall,
+                    statusText = status
+                )
+                _nightProgress.value = state
+                runBlocking(Dispatchers.Main) { onProgress(state) }
+            }
+
+            val fusedBitmap = try {
+                nightFusionProcessor.processNightFrames(
+                    frames = frames,
+                    noiseSuppression = noiseSuppression,
+                    shadowLift = shadowLift,
+                    isAntiGhostingEnabled = isAntiGhosting,
+                    onProgress = progressUpdate
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Night fusion failed, using base frame", e)
+                frames.firstOrNull() ?: Bitmap.createBitmap(1920, 1080, Bitmap.Config.ARGB_8888)
+            }
+
+            val uri = saveBitmapToMediaStore(fusedBitmap, 0)
+
+            frames.forEach { if (!it.isRecycled && it != fusedBitmap) it.recycle() }
+            if (!fusedBitmap.isRecycled) fusedBitmap.recycle()
+
+            _isCapturing.value = false
+            val finalProgress = NightCaptureProgress(
+                isCapturing = false,
+                remainingSeconds = 0f,
+                progress = 1.0f,
+                statusText = "Completed"
+            )
+            _nightProgress.value = finalProgress
+            updateStorageStats()
+            withContext(Dispatchers.Main) {
+                onProgress(finalProgress)
+                onComplete(uri)
+            }
+        }
     }
 
     /**
@@ -2222,6 +2541,46 @@ class Camera2Engine(private val context: Context) {
             return uri
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save JPEG to media store", e)
+            return null
+        }
+    }
+
+    private fun saveBitmapToMediaStore(bitmap: Bitmap, orientationDegrees: Int): Uri? {
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val fileName = "IMG_NIGHT_$timeStamp.jpg"
+
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/Camera")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+
+        val uri = context.contentResolver.insert(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        ) ?: return null
+
+        try {
+            context.contentResolver.openOutputStream(uri)?.use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 98, out)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                contentValues.clear()
+                contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+                context.contentResolver.update(uri, contentValues, null, null)
+            }
+            _lastCapturedMedia.value = CapturedMedia(
+                uri = uri,
+                isVideo = false,
+                timestamp = System.currentTimeMillis(),
+                displayName = fileName
+            )
+            return uri
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save night bitmap", e)
             return null
         }
     }

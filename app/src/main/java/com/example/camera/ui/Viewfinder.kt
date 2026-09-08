@@ -10,10 +10,13 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Icon
@@ -49,6 +52,9 @@ fun Viewfinder(
     onSurfaceTextureAvailable: (SurfaceTexture?) -> Unit,
     onTapToFocus: (Offset, Float, Float) -> Unit,
     onZoomChange: (Float) -> Unit,
+    onExposureCompensationChange: (Int) -> Unit = {},
+    onToggleLock: () -> Unit = {},
+    currentExposureCompensation: Int = 0,
     modifier: Modifier = Modifier
 ) {
     var textureViewInstance by remember { mutableStateOf<TextureView?>(null) }
@@ -91,11 +97,19 @@ fun Viewfinder(
                     }
                 }
                 .pointerInput(Unit) {
-                    detectTapGestures { offset ->
-                        val normX = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                        val normY = (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
-                        onTapToFocus(offset, normX, normY)
-                    }
+                    detectTapGestures(
+                        onTap = { offset ->
+                            val normX = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            val normY = (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
+                            onTapToFocus(offset, normX, normY)
+                        },
+                        onLongPress = { offset ->
+                            val normX = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            val normY = (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
+                            onTapToFocus(offset, normX, normY)
+                            onToggleLock()
+                        }
+                    )
                 }
         ) {
             // TextureView Preview
@@ -140,7 +154,10 @@ fun Viewfinder(
                     FocusRingIndicator(
                         point = point,
                         isAeLocked = isAeLocked,
-                        isAfLocked = isAfLocked
+                        isAfLocked = isAfLocked,
+                        exposureCompensation = currentExposureCompensation,
+                        onExposureChange = onExposureCompensationChange,
+                        onLockClick = onToggleLock
                     )
                 }
             }
@@ -153,11 +170,14 @@ fun FocusRingIndicator(
     point: Offset,
     isAeLocked: Boolean,
     isAfLocked: Boolean,
+    exposureCompensation: Int = 0,
+    onExposureChange: (Int) -> Unit = {},
+    onLockClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "focusPulse")
     val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.8f,
+        initialValue = 0.85f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
             animation = tween(600, easing = LinearEasing),
@@ -166,21 +186,23 @@ fun FocusRingIndicator(
         label = "alpha"
     )
 
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val ringSizePx = with(density) { 72.dp.toPx() }
+    val offsetX = with(density) { (point.x - ringSizePx / 2).toDp() }
+    val offsetY = with(density) { (point.y - ringSizePx / 2).toDp() }
+
     Box(
         modifier = modifier
             .fillMaxSize()
     ) {
         Box(
             modifier = Modifier
-                .offset(
-                    x = (point.x - 36).dp,
-                    y = (point.y - 36).dp
-                )
+                .offset(x = offsetX, y = offsetY)
                 .size(72.dp),
             contentAlignment = Alignment.Center
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val ringColor = if (isAeLocked || isAfLocked) Color(0xFFFFD54F) else Color(0xFFEEEEEE)
+                val ringColor = if (isAeLocked || isAfLocked) Color(0xFFFFD54F) else Color(0xFFFFEB3B)
                 drawCircle(
                     color = ringColor.copy(alpha = alpha),
                     radius = size.minDimension / 2f,
@@ -188,26 +210,29 @@ fun FocusRingIndicator(
                 )
                 // Small crosshair in center
                 drawLine(
-                    color = ringColor.copy(alpha = 0.7f),
+                    color = ringColor.copy(alpha = 0.8f),
                     start = Offset(size.width / 2f - 6.dp.toPx(), size.height / 2f),
                     end = Offset(size.width / 2f + 6.dp.toPx(), size.height / 2f),
                     strokeWidth = 1.5.dp.toPx()
                 )
                 drawLine(
-                    color = ringColor.copy(alpha = 0.7f),
+                    color = ringColor.copy(alpha = 0.8f),
                     start = Offset(size.width / 2f, size.height / 2f - 6.dp.toPx()),
                     end = Offset(size.width / 2f, size.height / 2f + 6.dp.toPx()),
                     strokeWidth = 1.5.dp.toPx()
                 )
             }
 
+            // Lock Indicator Badge (tap to toggle lock)
             if (isAeLocked || isAfLocked) {
                 Row(
                     modifier = Modifier
-                        .offset(y = 42.dp)
+                        .offset(y = 44.dp)
                         .clip(CircleShape)
-                        .background(Color(0xCC000000))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                        .background(Color(0xEE000000))
+                        .border(1.dp, Color(0xFFFFD54F).copy(alpha = 0.5f), CircleShape)
+                        .clickable { onLockClick() }
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -219,6 +244,47 @@ fun FocusRingIndicator(
                     Spacer(modifier = Modifier.width(3.dp))
                     Text(
                         text = if (isAeLocked && isAfLocked) "AE/AF LOCK" else if (isAeLocked) "AE LOCK" else "AF LOCK",
+                        color = Color(0xFFFFD54F),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // Stock-Camera Sun Exposure Slider to the right of the focus ring
+        var dragAccumulator by remember { mutableFloatStateOf(0f) }
+        Box(
+            modifier = Modifier
+                .offset(x = offsetX + 78.dp, y = offsetY + 12.dp)
+                .size(width = 30.dp, height = 48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black.copy(alpha = 0.5f))
+                .pointerInput(exposureCompensation) {
+                    detectTransformGestures { _, pan, _, _ ->
+                        dragAccumulator -= pan.y
+                        if (dragAccumulator > 25f) {
+                            onExposureChange((exposureCompensation + 1).coerceAtMost(4))
+                            dragAccumulator = 0f
+                        } else if (dragAccumulator < -25f) {
+                            onExposureChange((exposureCompensation - 1).coerceAtLeast(-4))
+                            dragAccumulator = 0f
+                        }
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "☀️",
+                    fontSize = 14.sp
+                )
+                if (exposureCompensation != 0) {
+                    Text(
+                        text = if (exposureCompensation > 0) "+$exposureCompensation" else "$exposureCompensation",
                         color = Color(0xFFFFD54F),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold

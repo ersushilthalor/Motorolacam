@@ -220,6 +220,24 @@ fun BottomControlBar(
                                         .background(Color.White)
                                 )
                             }
+                            CameraMode.NIGHT -> {
+                                Box(
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .scale(buttonScale)
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                        .border(3.dp, Color(0xFFFFB300), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFFFB300))
+                                    )
+                                }
+                            }
                             CameraMode.PORTRAIT -> {
                                 Box(
                                     modifier = Modifier
@@ -238,7 +256,7 @@ fun BottomControlBar(
                                     )
                                 }
                             }
-                            CameraMode.VIDEO, CameraMode.CINEMA -> {
+                            CameraMode.VIDEO, CameraMode.CINEMA, CameraMode.DOLLY_ZOOM, CameraMode.DUAL_VIDEO -> {
                                 if (isRecordingVideo) {
                                     Box(
                                         modifier = Modifier

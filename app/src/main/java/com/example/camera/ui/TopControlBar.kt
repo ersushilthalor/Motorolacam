@@ -268,6 +268,63 @@ fun TopControlBar(
                         )
                     }
                 }
+                CameraMode.NIGHT -> {
+                    Box(
+                        modifier = Modifier
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(17.dp))
+                            .background(Color(0x33FFB300))
+                            .border(1.dp, Color(0xFFFFB300), RoundedCornerShape(17.dp))
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "NIGHT HDR",
+                            color = Color(0xFFFFB300),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+                CameraMode.DOLLY_ZOOM -> {
+                    Box(
+                        modifier = Modifier
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(17.dp))
+                            .background(Color(0x33FFD54F))
+                            .border(1.dp, Color(0xFFFFD54F), RoundedCornerShape(17.dp))
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "DOLLY",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+                CameraMode.DUAL_VIDEO -> {
+                    Box(
+                        modifier = Modifier
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(17.dp))
+                            .background(Color(0x33E53935))
+                            .border(1.dp, Color(0xFFE53935), RoundedCornerShape(17.dp))
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "DUAL CAM",
+                            color = Color(0xFFFF8A80),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
             }
 
             // 4. Secondary Mode Badge (Pill)
@@ -371,6 +428,63 @@ fun TopControlBar(
                             text = "PRO",
                             color = Color.White,
                             fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+                CameraMode.NIGHT -> {
+                    Box(
+                        modifier = Modifier
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(17.dp))
+                            .background(Color(0xB21A1A1E))
+                            .border(1.dp, Color(0xFFFFB300), RoundedCornerShape(17.dp))
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "MULTI-FUSION",
+                            color = Color(0xFFFFB300),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+                CameraMode.DOLLY_ZOOM -> {
+                    Box(
+                        modifier = Modifier
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(17.dp))
+                            .background(Color(0xB21A1A1E))
+                            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(17.dp))
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "AUTO TRACK",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+                CameraMode.DUAL_VIDEO -> {
+                    Box(
+                        modifier = Modifier
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(17.dp))
+                            .background(Color(0xB21A1A1E))
+                            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(17.dp))
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "PIP / SPLIT",
+                            color = Color.White,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 0.5.sp
                         )

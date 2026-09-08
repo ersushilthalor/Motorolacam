@@ -2,14 +2,7 @@ package com.example.camera.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.example.camera.model.CameraMode
-import com.example.camera.model.ColorProfile
-import com.example.camera.model.FlashMode
-import com.example.camera.model.FocusMode
-import com.example.camera.model.GridType
-import com.example.camera.model.TimerMode
-import com.example.camera.model.VideoBitrateOption
-import com.example.camera.model.WhiteBalanceMode
+import com.example.camera.model.*
 
 /**
  * Persists user camera and video settings across sessions.
@@ -357,4 +350,129 @@ class CameraPreferences(context: Context) {
         cinemaManualIso = config.manualIso
         cinemaManualShutterSpeedNs = config.manualShutterSpeedNs
     }
+
+    // Upgraded Night Mode Preferences
+    var nightDurationSeconds: Int
+        get() = prefs.getInt("pref_night_duration", 2).coerceIn(1, 5)
+        set(value) = prefs.edit().putInt("pref_night_duration", value.coerceIn(1, 5)).apply()
+
+    var nightIsMultiFrameFusion: Boolean
+        get() = prefs.getBoolean("pref_night_fusion", true)
+        set(value) = prefs.edit().putBoolean("pref_night_fusion", value).apply()
+
+    var nightIsAntiGhostingEnabled: Boolean
+        get() = prefs.getBoolean("pref_night_anti_ghosting", true)
+        set(value) = prefs.edit().putBoolean("pref_night_anti_ghosting", value).apply()
+
+    var nightNoiseSuppression: Float
+        get() = prefs.getFloat("pref_night_noise_suppression", 0.85f)
+        set(value) = prefs.edit().putFloat("pref_night_noise_suppression", value).apply()
+
+    var nightShadowLift: Float
+        get() = prefs.getFloat("pref_night_shadow_lift", 1.25f)
+        set(value) = prefs.edit().putFloat("pref_night_shadow_lift", value).apply()
+
+    // Hybrid Stabilization Preferences
+    var isHybridStabilizationEnabled: Boolean
+        get() = prefs.getBoolean("pref_hybrid_stabilization", true)
+        set(value) = prefs.edit().putBoolean("pref_hybrid_stabilization", value).apply()
+
+    var isOisPreferred: Boolean
+        get() = prefs.getBoolean("pref_ois_preferred", true)
+        set(value) = prefs.edit().putBoolean("pref_ois_preferred", value).apply()
+
+    var isEisPreferred: Boolean
+        get() = prefs.getBoolean("pref_eis_preferred", true)
+        set(value) = prefs.edit().putBoolean("pref_eis_preferred", value).apply()
+
+    var isAdaptiveFpsLensStabilization: Boolean
+        get() = prefs.getBoolean("pref_adaptive_stabilization", true)
+        set(value) = prefs.edit().putBoolean("pref_adaptive_stabilization", value).apply()
+
+    // Tap to Focus & Exposure Preferences
+    var isTapToFocusExposureEnabled: Boolean
+        get() = prefs.getBoolean("pref_tap_focus_exposure", true)
+        set(value) = prefs.edit().putBoolean("pref_tap_focus_exposure", value).apply()
+
+    var isAeAfLockEnabled: Boolean
+        get() = prefs.getBoolean("pref_ae_af_lock", true)
+        set(value) = prefs.edit().putBoolean("pref_ae_af_lock", value).apply()
+
+    var isSunExposureSliderEnabled: Boolean
+        get() = prefs.getBoolean("pref_sun_slider", true)
+        set(value) = prefs.edit().putBoolean("pref_sun_slider", value).apply()
+
+    // Dual Video Preferences
+    var dualVideoLayout: com.example.camera.model.DualVideoLayout
+        get() {
+            val name = prefs.getString("pref_dual_layout", com.example.camera.model.DualVideoLayout.SIDE_BY_SIDE.name)
+                ?: com.example.camera.model.DualVideoLayout.SIDE_BY_SIDE.name
+            return try { com.example.camera.model.DualVideoLayout.valueOf(name) } catch (e: Exception) { com.example.camera.model.DualVideoLayout.SIDE_BY_SIDE }
+        }
+        set(value) = prefs.edit().putString("pref_dual_layout", value.name).apply()
+
+    // Dolly Zoom Preferences
+    var dollyDirection: com.example.camera.model.DollyDirection
+        get() {
+            val name = prefs.getString("pref_dolly_direction", com.example.camera.model.DollyDirection.AUTO.name)
+                ?: com.example.camera.model.DollyDirection.AUTO.name
+            return try { com.example.camera.model.DollyDirection.valueOf(name) } catch (e: Exception) { com.example.camera.model.DollyDirection.AUTO }
+        }
+        set(value) = prefs.edit().putString("pref_dolly_direction", value.name).apply()
+
+    var nightConfig: NightConfig
+        get() = NightConfig(
+            durationSeconds = nightDurationSeconds,
+            multiFrameFusionEnabled = nightIsMultiFrameFusion,
+            antiGhostingEnabled = nightIsAntiGhostingEnabled,
+            noiseSuppression = nightNoiseSuppression,
+            shadowLift = nightShadowLift,
+            isMultiFrameFusion = nightIsMultiFrameFusion,
+            isAntiGhostingEnabled = nightIsAntiGhostingEnabled,
+            noiseSuppressionStrength = nightNoiseSuppression,
+            shadowLiftFactor = nightShadowLift
+        )
+        set(value) {
+            nightDurationSeconds = value.durationSeconds
+            nightIsMultiFrameFusion = value.multiFrameFusionEnabled
+            nightIsAntiGhostingEnabled = value.antiGhostingEnabled
+            nightNoiseSuppression = value.noiseSuppression
+            nightShadowLift = value.shadowLift
+        }
+
+    var tapFocusConfig: TapFocusConfig
+        get() = TapFocusConfig(
+            isTapToFocusExposureEnabled = isTapToFocusExposureEnabled,
+            isTapToFocusEnabled = isTapToFocusExposureEnabled,
+            isAeAfLockEnabled = isAeAfLockEnabled,
+            isSunExposureSliderEnabled = isSunExposureSliderEnabled,
+            autoDismissReticle = true
+        )
+        set(value) {
+            isTapToFocusExposureEnabled = value.isTapToFocusEnabled
+            isAeAfLockEnabled = value.isAeAfLockEnabled
+            isSunExposureSliderEnabled = value.isSunExposureSliderEnabled
+        }
+
+    var hybridStabilizationConfig: HybridStabilizationConfig
+        get() = HybridStabilizationConfig(
+            isHybridEnabled = isHybridStabilizationEnabled,
+            isOisPreferred = isOisPreferred,
+            isEisPreferred = isEisPreferred,
+            isAdaptiveFpsLens = isAdaptiveFpsLensStabilization
+        )
+        set(value) {
+            isHybridStabilizationEnabled = value.isHybridEnabled
+            isOisPreferred = value.isOisPreferred
+            isEisPreferred = value.isEisPreferred
+            isAdaptiveFpsLensStabilization = value.isAdaptiveFpsLens
+        }
+
+    var dualVideoConfig: DualVideoConfig
+        get() = DualVideoConfig(
+            layout = dualVideoLayout
+        )
+        set(value) {
+            dualVideoLayout = value.layout
+        }
 }

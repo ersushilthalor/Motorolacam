@@ -34,6 +34,8 @@ fun MoreModesDrawer(
     onSelectCinemaLog: () -> Unit,
     onSelectMacro: () -> Unit,
     onSelectNight: () -> Unit,
+    onSelectDollyZoom: () -> Unit = {},
+    onSelectDualVideo: () -> Unit = {},
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -126,6 +128,30 @@ fun MoreModesDrawer(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     MoreModeCard(
+                        icon = Icons.Outlined.ZoomOutMap,
+                        title = "Dolly Zoom",
+                        subtitle = "Vertigo auto zoom lock",
+                        tag = "mode_card_dolly_zoom",
+                        modifier = Modifier.weight(1f),
+                        onClick = onSelectDollyZoom
+                    )
+                    MoreModeCard(
+                        icon = Icons.Outlined.Cameraswitch,
+                        title = "Dual Video",
+                        subtitle = "True concurrent multi-cam",
+                        tag = "mode_card_dual_video",
+                        modifier = Modifier.weight(1f),
+                        onClick = onSelectDualVideo
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    MoreModeCard(
                         icon = Icons.Outlined.CenterFocusStrong,
                         title = "Macro Close-Up",
                         subtitle = "Extreme optical focal lock",
@@ -135,8 +161,8 @@ fun MoreModesDrawer(
                     )
                     MoreModeCard(
                         icon = Icons.Outlined.NightsStay,
-                        title = "Night Exposure",
-                        subtitle = "Low-noise long exposure",
+                        title = "Night Fusion",
+                        subtitle = "Computational HDR burst",
                         tag = "mode_card_night",
                         modifier = Modifier.weight(1f),
                         onClick = onSelectNight
