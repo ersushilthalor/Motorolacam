@@ -302,7 +302,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         // Video HDR system removed: permanently OFF
         engine.setVideoHdrMode(VideoHdrMode.OFF)
         engine.setMode(preferences.cameraMode)
-        engine.selectVideoResolution(CameraResolution(preferences.videoWidth, preferences.videoHeight))
+        engine.restoreInitialVideoResolution(CameraResolution(preferences.videoWidth, preferences.videoHeight))
         engine.setCinemaConfig(preferences.getCinemaConfig())
 
         viewModelScope.launch {

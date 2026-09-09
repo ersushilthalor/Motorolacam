@@ -97,6 +97,8 @@ fun CameraScreen(
     val selectedPhotoResolution by viewModel.engine.selectedPhotoResolution.collectAsStateWithLifecycle()
     val selectedVideoResolution by viewModel.engine.selectedVideoResolution.collectAsStateWithLifecycle()
     val previewAspectRatio by viewModel.engine.previewAspectRatio.collectAsStateWithLifecycle()
+    val previewBufferSize by viewModel.engine.previewBufferSize.collectAsStateWithLifecycle()
+    val sensorOrientation by viewModel.engine.sensorOrientation.collectAsStateWithLifecycle()
     val storageStats by viewModel.engine.storageStats.collectAsStateWithLifecycle()
     val isRecordingVideo by viewModel.engine.isRecordingVideo.collectAsStateWithLifecycle()
     val videoDurationSeconds by viewModel.engine.videoDurationSeconds.collectAsStateWithLifecycle()
@@ -172,6 +174,8 @@ fun CameraScreen(
             isAfLocked = isAfLocked,
             isFrontCamera = selectedLens?.facing == android.hardware.camera2.CameraCharacteristics.LENS_FACING_FRONT,
             cameraMode = cameraMode,
+            previewBufferSize = previewBufferSize,
+            sensorOrientation = sensorOrientation,
             onSurfaceTextureAvailable = { texture ->
                 viewModel.engine.setPreviewSurfaceTexture(texture)
             },

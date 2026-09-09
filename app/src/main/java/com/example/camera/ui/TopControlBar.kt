@@ -4,7 +4,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -640,20 +642,32 @@ fun TopControlBar(
             TopBarAlignment.COMPACT_RIGHT -> Arrangement.spacedBy(layoutConfig.topControlsSpacingDp.dp, Alignment.End)
         }
 
+        val shouldScroll = visibleItems.size > 5
+        val topScrollState = rememberScrollState()
+
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = horizontalArrangement,
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (shouldScroll) Modifier.horizontalScroll(topScrollState) else Modifier
+                ),
+            horizontalArrangement = if (shouldScroll) Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally) else horizontalArrangement,
             verticalAlignment = Alignment.CenterVertically
         ) {
             visibleItems.forEach { item ->
-                when (item) {
-                    TopControlItem.FLASH -> flashButton()
-                    TopControlItem.TIMER -> timerAudioButton()
-                    TopControlItem.GRID -> gridAssistButton()
-                    TopControlItem.RESOLUTION -> primaryBadge()
-                    TopControlItem.RAW -> secondaryBadge()
-                    TopControlItem.PRO_EXP -> proExpButton()
-                    TopControlItem.SETTINGS -> settingsButton()
+                Box(
+                    modifier = Modifier.wrapContentSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    when (item) {
+                        TopControlItem.FLASH -> flashButton()
+                        TopControlItem.TIMER -> timerAudioButton()
+                        TopControlItem.GRID -> gridAssistButton()
+                        TopControlItem.RESOLUTION -> primaryBadge()
+                        TopControlItem.RAW -> secondaryBadge()
+                        TopControlItem.PRO_EXP -> proExpButton()
+                        TopControlItem.SETTINGS -> settingsButton()
+                    }
                 }
             }
         }

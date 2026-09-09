@@ -132,6 +132,15 @@ class Camera2Engine(private val context: Context) {
     var saveSelfieAsPreviewed: Boolean = true
     var viewfinderResolution: ViewfinderResolution = ViewfinderResolution.NORMAL
 
+    private val _previewBufferSize = MutableStateFlow<Size?>(null)
+    val previewBufferSize: StateFlow<Size?> = _previewBufferSize.asStateFlow()
+
+    private val _sensorOrientation = MutableStateFlow(90)
+    val sensorOrientation: StateFlow<Int> = _sensorOrientation.asStateFlow()
+
+    private var cameraOpenRetryCount = 0
+    private val MAX_CAMERA_OPEN_RETRIES = 3
+
     private val _isAeLockedFlow = MutableStateFlow(false)
     val isAeLockedFlow: StateFlow<Boolean> = _isAeLockedFlow.asStateFlow()
 
@@ -795,6 +804,14 @@ class Camera2Engine(private val context: Context) {
     }
 
     /**
+     * Restore saved video resolution without triggering camera restart before viewfinder is attached
+     */
+    fun restoreInitialVideoResolution(resolution: CameraResolution) {
+        _selectedVideoResolution.value = resolution
+        updatePreviewAspectRatio()
+    }
+
+    /**
      * Switch between Photo, Portrait, Video & Cinema modes
      */
     fun setMode(mode: CameraMode) {
@@ -869,6 +886,10 @@ class Camera2Engine(private val context: Context) {
                 ?: previewSizes.firstOrNull()
                 ?: Size(1920, 1080)
 
+            val sensorOrient = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+            _sensorOrientation.value = sensorOrient
+            _previewBufferSize.value = optimalPreviewSize
+
             texture.setDefaultBufferSize(optimalPreviewSize.width, optimalPreviewSize.height)
             previewSurface = Surface(texture)
 
@@ -885,6 +906,7 @@ class Camera2Engine(private val context: Context) {
 
             cameraManager.openCamera(lens.cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
+                    cameraOpenRetryCount = 0
                     cameraDevice = camera
                     synchronized(cameraLifecycleLock) {
                         isStartingCamera = false
@@ -911,7 +933,7 @@ class Camera2Engine(private val context: Context) {
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
-                    Log.e(TAG, "Camera open error: $error")
+                    Log.e(TAG, "Camera open error: $error (attempt $cameraOpenRetryCount)")
                     camera.close()
                     cameraDevice = null
                     _isCameraReady.value = false
@@ -923,13 +945,15 @@ class Camera2Engine(private val context: Context) {
                             return
                         }
                     }
-                    // Auto-recover from transient HAL contention or device busy error
-                    if (error == CameraDevice.StateCallback.ERROR_CAMERA_IN_USE ||
-                        error == CameraDevice.StateCallback.ERROR_MAX_CAMERAS_IN_USE ||
-                        error == CameraDevice.StateCallback.ERROR_CAMERA_DEVICE) {
+                    // Auto-recover from transient HAL contention or device busy error with bounded retries
+                    if (cameraOpenRetryCount < MAX_CAMERA_OPEN_RETRIES &&
+                        (error == CameraDevice.StateCallback.ERROR_CAMERA_IN_USE ||
+                         error == CameraDevice.StateCallback.ERROR_MAX_CAMERAS_IN_USE ||
+                         error == CameraDevice.StateCallback.ERROR_CAMERA_DEVICE)) {
+                        cameraOpenRetryCount++
                         backgroundHandler?.postDelayed({
                             restartCamera()
-                        }, 200)
+                        }, 300L * cameraOpenRetryCount)
                     }
                 }
             }, backgroundHandler)
@@ -2650,6 +2674,10 @@ class Camera2Engine(private val context: Context) {
     }
 
     fun restartCamera() {
+        if (previewSurfaceTexture == null) {
+            Log.d(TAG, "Skipping restartCamera: previewSurfaceTexture is not attached")
+            return
+        }
         backgroundHandler?.post {
             synchronized(cameraLifecycleLock) {
                 if (isStartingCamera) {

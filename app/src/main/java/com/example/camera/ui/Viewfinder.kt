@@ -1,6 +1,9 @@
 package com.example.camera.ui
 
+import android.graphics.Matrix
+import android.graphics.RectF
 import android.graphics.SurfaceTexture
+import android.util.Size as CameraSize
 import android.view.TextureView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
@@ -39,6 +42,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.camera.model.CameraMode
 import com.example.camera.model.GridType
+import kotlin.math.max
+import kotlin.math.min
 
 @Composable
 fun Viewfinder(
@@ -49,6 +54,8 @@ fun Viewfinder(
     isAfLocked: Boolean,
     isFrontCamera: Boolean = false,
     cameraMode: CameraMode = CameraMode.PHOTO,
+    previewBufferSize: CameraSize? = null,
+    sensorOrientation: Int = 90,
     onSurfaceTextureAvailable: (SurfaceTexture?) -> Unit,
     onTapToFocus: (Offset, Float, Float) -> Unit,
     onZoomChange: (Float) -> Unit,
@@ -59,6 +66,14 @@ fun Viewfinder(
 ) {
     var textureViewInstance by remember { mutableStateOf<TextureView?>(null) }
     var currentScale by remember { mutableFloatStateOf(1.0f) }
+
+    LaunchedEffect(previewBufferSize, sensorOrientation, isFrontCamera) {
+        textureViewInstance?.let { tv ->
+            if (tv.width > 0 && tv.height > 0) {
+                applyTextureTransform(tv, tv.width, tv.height, previewBufferSize, sensorOrientation, isFrontCamera)
+            }
+        }
+    }
 
     BoxWithConstraints(
         modifier = modifier
@@ -123,9 +138,12 @@ fun Viewfinder(
                     TextureView(context).apply {
                         surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                             override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+                                applyTextureTransform(this@apply, w, h, previewBufferSize, sensorOrientation, isFrontCamera)
                                 onSurfaceTextureAvailable(st)
                             }
-                            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
+                            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
+                                applyTextureTransform(this@apply, w, h, previewBufferSize, sensorOrientation, isFrontCamera)
+                            }
                             override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
                                 onSurfaceTextureAvailable(null)
                                 return true
@@ -136,10 +154,9 @@ fun Viewfinder(
                     }
                 },
                 update = { textureView ->
-                    // The live viewfinder must remain exactly as the camera normally previews it.
-                    // Do not apply any horizontal flip, matrix transformation, or scale transformation.
-                    textureView.scaleX = 1f
-                    textureView.scaleY = 1f
+                    if (textureView.width > 0 && textureView.height > 0) {
+                        applyTextureTransform(textureView, textureView.width, textureView.height, previewBufferSize, sensorOrientation, isFrontCamera)
+                    }
                 },
                 modifier = Modifier.fillMaxSize()
             )
@@ -362,4 +379,55 @@ fun CameraGridOverlay(
             GridType.NONE -> {}
         }
     }
+}
+
+/**
+ * Mathematically transforms the TextureView so that Camera2 preview frames
+ * (which are delivered in landscape sensor coordinate space) are rendered
+ * upright and in their true aspect ratio without any vertical or horizontal stretching.
+ */
+private fun applyTextureTransform(
+    textureView: TextureView,
+    viewWidth: Int,
+    viewHeight: Int,
+    bufferSize: CameraSize?,
+    sensorOrientation: Int,
+    isFrontCamera: Boolean
+) {
+    if (viewWidth <= 0 || viewHeight <= 0) return
+    val matrix = Matrix()
+
+    val bufW = if (bufferSize != null && bufferSize.width > 0) bufferSize.width.toFloat() else 1920f
+    val bufH = if (bufferSize != null && bufferSize.height > 0) bufferSize.height.toFloat() else 1080f
+
+    // Camera2 sensor buffers are natively landscape (width >= height)
+    val landscapeBufW = max(bufW, bufH)
+    val landscapeBufH = min(bufW, bufH)
+
+    val viewRect = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
+    val centerX = viewRect.centerX()
+    val centerY = viewRect.centerY()
+
+    // In portrait orientation, the landscape sensor buffer is rotated 90° or 270°.
+    // Therefore, its effective portrait width is landscapeBufH and height is landscapeBufW.
+    val bufferRect = RectF(0f, 0f, landscapeBufH, landscapeBufW)
+    bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
+    matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+
+    val scale = max(
+        viewHeight.toFloat() / landscapeBufW,
+        viewWidth.toFloat() / landscapeBufH
+    )
+    matrix.postScale(scale, scale, centerX, centerY)
+
+    // Standard camera orientation: rear sensor is 90°, front sensor is 270°
+    val rotationDegrees = if (sensorOrientation == 270) 270f else 90f
+    matrix.postRotate(rotationDegrees, centerX, centerY)
+
+    // Front selfie camera preview behaves like a natural mirror
+    if (isFrontCamera) {
+        matrix.postScale(-1f, 1f, centerX, centerY)
+    }
+
+    textureView.setTransform(matrix)
 }
