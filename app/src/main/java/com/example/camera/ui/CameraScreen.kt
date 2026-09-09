@@ -152,6 +152,10 @@ fun CameraScreen(
     val nightProgress by viewModel.nightProgress.collectAsStateWithLifecycle()
     val hybridStabilizationConfig by viewModel.hybridStabilizationConfig.collectAsStateWithLifecycle()
     val tapFocusConfig by viewModel.tapFocusConfig.collectAsStateWithLifecycle()
+    val uiCustomizationState by viewModel.uiCustomizationState.collectAsStateWithLifecycle()
+    val activeLayoutConfig = remember(uiCustomizationState, cameraMode) {
+        uiCustomizationState.getConfigForMode(cameraMode)
+    }
 
     Box(
         modifier = modifier
@@ -265,6 +269,7 @@ fun CameraScreen(
             onGridClick = { viewModel.cycleGridType() },
             onRawClick = { viewModel.toggleRawCapture() },
             onSettingsClick = { viewModel.setSettingsOpen(true) },
+            layoutConfig = activeLayoutConfig,
             modifier = Modifier.align(Alignment.TopCenter)
         )
 
@@ -399,7 +404,7 @@ fun CameraScreen(
 
         // 3e. Dedicated More Modes Drawer
         MoreModesDrawer(
-            isOpen = (cameraMode == CameraMode.MORE && isMoreModesOpen),
+            isOpen = isMoreModesOpen,
             onDismissRequest = { viewModel.setMoreModesOpen(false) },
             onSelectProManual = {
                 viewModel.setMoreModesOpen(false)
@@ -436,8 +441,9 @@ fun CameraScreen(
                 .padding(bottom = 190.dp)
         )
 
-        // Floating button to reopen More Modes Drawer when closed
-        if (cameraMode == CameraMode.MORE && !isMoreModesOpen) {
+        // Floating button to reopen More Modes Drawer when in a specialized more mode
+        val isSpecializedMoreMode = (cameraMode != CameraMode.PHOTO && cameraMode != CameraMode.PORTRAIT && cameraMode != CameraMode.VIDEO)
+        if (isSpecializedMoreMode && !isMoreModesOpen) {
             Surface(
                 shape = CircleShape,
                 color = Color(0xFF26210A).copy(alpha = 0.85f),
@@ -513,6 +519,7 @@ fun CameraScreen(
                 }
             },
             onCinemaModeClick = { viewModel.toggleCinemaSettings() },
+            layoutConfig = activeLayoutConfig,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
 
@@ -539,6 +546,15 @@ fun CameraScreen(
             hybridStabilizationConfig = hybridStabilizationConfig,
             nightConfig = nightConfig,
             tapFocusConfig = tapFocusConfig,
+            uiCustomizationState = uiCustomizationState,
+            onSelectTemplate = { viewModel.selectUiTemplate(it) },
+            onUpdateGlobalLayoutConfig = { viewModel.updateGlobalLayoutConfig(it) },
+            onUpdateModeLayoutConfig = { mode, config -> viewModel.updateModeLayoutConfig(mode, config) },
+            onResetModeLayoutConfig = { mode -> viewModel.resetModeLayoutToGlobal(mode) },
+            onSaveCustomPreset = { name, config -> viewModel.saveCustomPreset(name, config) },
+            onLoadCustomPreset = { viewModel.loadCustomPreset(it) },
+            onDeleteCustomPreset = { viewModel.deleteCustomPreset(it) },
+            onResetAllToTemplate = { viewModel.resetLayoutToTemplate(it) },
             onLensSelected = { viewModel.selectLens(it) },
             onForceDeepScan = { viewModel.forceDeepScanLenses() },
             onPhotoResolutionSelected = { viewModel.selectPhotoResolution(it) },

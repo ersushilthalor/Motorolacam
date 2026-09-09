@@ -47,6 +47,23 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     val hybridStabilizationConfig: StateFlow<HybridStabilizationConfig> = engine.hybridStabilizationConfig
 
+    val isRecordingVideo: StateFlow<Boolean> = combine(
+        engine.isRecordingVideo,
+        dualCameraManager.isRecording
+    ) { engRec, dualRec ->
+        engRec || dualRec
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    val videoDurationSeconds: StateFlow<Int> = combine(
+        engine.videoDurationSeconds,
+        dualCameraManager.recordingDurationSeconds
+    ) { engDur, dualDur ->
+        if (_cameraMode.value == CameraMode.DUAL_VIDEO) dualDur else engDur
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    private val _selectedAspectRatio = MutableStateFlow(CameraAspectRatio.RATIO_9_16)
+    val selectedAspectRatio: StateFlow<CameraAspectRatio> = _selectedAspectRatio.asStateFlow()
+
     private val _tapFocusConfig = MutableStateFlow(preferences.tapFocusConfig)
     val tapFocusConfig: StateFlow<TapFocusConfig> = _tapFocusConfig.asStateFlow()
 
@@ -65,6 +82,10 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _portraitProcessingState = MutableStateFlow(PortraitProcessingState())
     val portraitProcessingState: StateFlow<PortraitProcessingState> = _portraitProcessingState.asStateFlow()
+
+    // UI Customization State
+    private val _uiCustomizationState = MutableStateFlow(preferences.uiCustomizationState)
+    val uiCustomizationState: StateFlow<UiCustomizationState> = _uiCustomizationState.asStateFlow()
 
     // Filtered lenses strictly adhering to current facing:
     // When on Back Camera -> ONLY back lenses (0.5x, 1x, 2x, etc.)
@@ -406,9 +427,30 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun setCameraMode(mode: CameraMode) {
+        val previousMode = _cameraMode.value
         _cameraMode.value = mode
         preferences.cameraMode = mode
-        engine.setMode(mode)
+
+        if (mode == CameraMode.DUAL_VIDEO) {
+            engine.closeCamera()
+            dualCameraManager.prepareDualCameras()
+        } else {
+            if (previousMode == CameraMode.DUAL_VIDEO) {
+                dualCameraManager.closeStreams()
+                engine.startCamera()
+            }
+            engine.setMode(mode)
+        }
+
+        // Apply true 9:16 aspect ratio for Video and Cinema modes
+        if (mode == CameraMode.VIDEO || mode == CameraMode.CINEMA) {
+            _selectedAspectRatio.value = CameraAspectRatio.RATIO_9_16
+            engine.setPreviewAspectRatio(16f / 9f)
+        } else if (mode == CameraMode.PHOTO || mode == CameraMode.PORTRAIT) {
+            _selectedAspectRatio.value = CameraAspectRatio.RATIO_4_3
+            engine.setPreviewAspectRatio(4f / 3f)
+        }
+
         _isCinemaSettingsOpen.value = false
         if (mode == CameraMode.MORE) {
             _isMoreModesOpen.value = true
@@ -865,6 +907,28 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun triggerVideoCapture() {
+        if (_cameraMode.value == CameraMode.DUAL_VIDEO) {
+            if (dualCameraManager.isRecording.value) {
+                dualCameraManager.stopRecording { uri ->
+                    if (uri != null) {
+                        showToast("Dual Video saved to DCIM/Camera")
+                    } else {
+                        showToast("Failed to save dual video")
+                    }
+                }
+            } else {
+                dualCameraManager.startRecording(
+                    onSaved = { uri ->
+                        showToast("Dual Video saved to DCIM/Camera")
+                    },
+                    onError = { error ->
+                        showToast("Dual Video error: $error")
+                    }
+                )
+            }
+            return
+        }
+
         if (engine.isRecordingVideo.value) {
             engine.stopVideoRecording()
             showToast("Video saved to DCIM/Camera")
@@ -873,6 +937,95 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                 showToast("Recording error: $error")
             }
         }
+    }
+
+    // --- Camera UI Customization & Templates ---
+
+    fun selectUiTemplate(template: UiTemplateType) {
+        val templateConfig = CameraUiTemplates.getTemplateConfig(template)
+        val updated = _uiCustomizationState.value.copy(
+            selectedTemplate = template,
+            globalConfig = templateConfig
+        )
+        _uiCustomizationState.value = updated
+        preferences.uiCustomizationState = updated
+        showToast("Switched to ${template.title}")
+    }
+
+    fun updateGlobalLayoutConfig(config: ModeLayoutConfig) {
+        val updated = _uiCustomizationState.value.copy(
+            selectedTemplate = UiTemplateType.CUSTOM,
+            globalConfig = config
+        )
+        _uiCustomizationState.value = updated
+        preferences.uiCustomizationState = updated
+    }
+
+    fun updateModeLayoutConfig(mode: CameraMode, config: ModeLayoutConfig) {
+        val currentModes = _uiCustomizationState.value.modeSpecificConfigs.toMutableMap()
+        currentModes[mode] = config
+        val updated = _uiCustomizationState.value.copy(
+            selectedTemplate = UiTemplateType.CUSTOM,
+            modeSpecificConfigs = currentModes
+        )
+        _uiCustomizationState.value = updated
+        preferences.uiCustomizationState = updated
+    }
+
+    fun resetModeLayoutToGlobal(mode: CameraMode) {
+        val currentModes = _uiCustomizationState.value.modeSpecificConfigs.toMutableMap()
+        currentModes.remove(mode)
+        val updated = _uiCustomizationState.value.copy(
+            modeSpecificConfigs = currentModes
+        )
+        _uiCustomizationState.value = updated
+        preferences.uiCustomizationState = updated
+        showToast("Reset ${mode.name} layout to default")
+    }
+
+    fun saveCustomPreset(name: String, config: ModeLayoutConfig) {
+        val preset = CustomUiPreset(
+            id = "preset_${System.currentTimeMillis()}",
+            name = name.ifBlank { "Preset ${_uiCustomizationState.value.customPresets.size + 1}" },
+            templateType = UiTemplateType.CUSTOM,
+            config = config
+        )
+        val currentPresets = _uiCustomizationState.value.customPresets.toMutableList()
+        currentPresets.add(preset)
+        val updated = _uiCustomizationState.value.copy(customPresets = currentPresets)
+        _uiCustomizationState.value = updated
+        preferences.uiCustomizationState = updated
+        showToast("Saved preset: ${preset.name}")
+    }
+
+    fun loadCustomPreset(preset: CustomUiPreset) {
+        val updated = _uiCustomizationState.value.copy(
+            selectedTemplate = preset.templateType,
+            globalConfig = preset.config
+        )
+        _uiCustomizationState.value = updated
+        preferences.uiCustomizationState = updated
+        showToast("Loaded preset: ${preset.name}")
+    }
+
+    fun deleteCustomPreset(presetId: String) {
+        val currentPresets = _uiCustomizationState.value.customPresets.filterNot { it.id == presetId }
+        val updated = _uiCustomizationState.value.copy(customPresets = currentPresets)
+        _uiCustomizationState.value = updated
+        preferences.uiCustomizationState = updated
+        showToast("Preset removed")
+    }
+
+    fun resetLayoutToTemplate(template: UiTemplateType) {
+        val templateConfig = CameraUiTemplates.getTemplateConfig(template)
+        val updated = _uiCustomizationState.value.copy(
+            selectedTemplate = template,
+            globalConfig = templateConfig,
+            modeSpecificConfigs = emptyMap()
+        )
+        _uiCustomizationState.value = updated
+        preferences.uiCustomizationState = updated
+        showToast("Reset all layouts to ${template.title}")
     }
 
     fun showToast(message: String) {
@@ -887,5 +1040,6 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     override fun onCleared() {
         super.onCleared()
         engine.release()
+        dualCameraManager.release()
     }
 }

@@ -41,6 +41,7 @@ enum class SettingsSubPage(val title: String, val subtitle: String, val icon: Im
     FOCUS_EXPOSURE("Focus & Exposure", "Tap to focus, AE/AF Lock & exposure reticle", Icons.Outlined.CenterFocusStrong),
     NIGHT_MODE("Night Mode", "Multi-frame burst fusion & exposure duration", Icons.Outlined.NightsStay),
     CINEMA_LOG("Cinema & 10-Bit Log", "10-bit HLG, zebra stripes, peaking & waveforms", Icons.Outlined.MovieCreation),
+    UI_CUSTOMIZATION("Camera UI & Layout", "iPhone, Samsung, Vivo templates & visual layout editor", Icons.Outlined.DashboardCustomize),
     HARDWARE("Hardware & Diagnostics", "Aux lens discovery & Camera2 HAL diagnostics", Icons.Outlined.Memory)
 }
 
@@ -90,6 +91,15 @@ fun SettingsDrawer(
     onSaveSelfieAsPreviewedToggle: (Boolean) -> Unit = {},
     onGridTypeSelected: (GridType) -> Unit = {},
     onCinemaConfigChange: (CinemaConfig) -> Unit = {},
+    uiCustomizationState: UiCustomizationState = UiCustomizationState(),
+    onSelectTemplate: (UiTemplateType) -> Unit = {},
+    onUpdateGlobalLayoutConfig: (ModeLayoutConfig) -> Unit = {},
+    onUpdateModeLayoutConfig: (CameraMode, ModeLayoutConfig) -> Unit = { _, _ -> },
+    onResetModeLayoutConfig: (CameraMode) -> Unit = {},
+    onSaveCustomPreset: (String, ModeLayoutConfig) -> Unit = { _, _ -> },
+    onLoadCustomPreset: (CustomUiPreset) -> Unit = {},
+    onDeleteCustomPreset: (String) -> Unit = {},
+    onResetAllToTemplate: (UiTemplateType) -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -218,6 +228,7 @@ fun SettingsDrawer(
                                     SettingsSubPage.FOCUS_EXPOSURE -> if (tapFocusConfig.isTapToFocusEnabled) "Tap to Focus ON" else "Continuous AF"
                                     SettingsSubPage.NIGHT_MODE -> "${nightConfig.durationSeconds}s Duration · Multi-Frame"
                                     SettingsSubPage.CINEMA_LOG -> "${cinemaConfig.colorProfile.label} · ${cinemaConfig.logBitDepth.label}"
+                                    SettingsSubPage.UI_CUSTOMIZATION -> "${uiCustomizationState.selectedTemplate.title} · ${if (uiCustomizationState.modeSpecificConfigs.isNotEmpty()) "${uiCustomizationState.modeSpecificConfigs.size} custom modes" else "Active Layout"}"
                                     SettingsSubPage.HARDWARE -> "${availableLenses.size} Lenses · Full HAL"
                                 }
 
@@ -679,6 +690,23 @@ fun SettingsDrawer(
                                             }
                                         }
                                     }
+                                }
+                            }
+
+                            SettingsSubPage.UI_CUSTOMIZATION -> {
+                                item {
+                                    CameraUiCustomizationView(
+                                        uiState = uiCustomizationState,
+                                        currentCameraMode = cameraMode,
+                                        onSelectTemplate = onSelectTemplate,
+                                        onUpdateGlobalConfig = onUpdateGlobalLayoutConfig,
+                                        onUpdateModeConfig = onUpdateModeLayoutConfig,
+                                        onResetModeConfig = onResetModeLayoutConfig,
+                                        onSavePreset = onSaveCustomPreset,
+                                        onLoadPreset = onLoadCustomPreset,
+                                        onDeletePreset = onDeleteCustomPreset,
+                                        onResetAllToTemplate = onResetAllToTemplate
+                                    )
                                 }
                             }
 

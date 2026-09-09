@@ -56,8 +56,13 @@ fun TopControlBar(
     onGridClick: () -> Unit,
     onRawClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    layoutConfig: ModeLayoutConfig = ModeLayoutConfig(),
     modifier: Modifier = Modifier
 ) {
+    val accentColor = layoutConfig.getComposeAccentColor()
+    val iconSize = layoutConfig.topControlsIconSizeDp.dp
+    val buttonSize = (layoutConfig.topControlsIconSizeDp + 18).dp.coerceAtLeast(38.dp)
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -66,16 +71,11 @@ fun TopControlBar(
             .padding(horizontal = 14.dp, vertical = 8.dp)
             .testTag("master_top_control_bar")
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // 1. Flash Button (Circular)
+        val flashButton = @Composable {
             IconButton(
                 onClick = onFlashClick,
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(buttonSize)
                     .clip(CircleShape)
                     .background(Color(0xB21A1A1E))
                     .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
@@ -83,26 +83,26 @@ fun TopControlBar(
             ) {
                 val (flashIcon, flashColor) = when (flashMode) {
                     FlashMode.OFF -> Icons.Outlined.FlashOff to Color.White.copy(alpha = 0.85f)
-                    FlashMode.AUTO -> Icons.Outlined.FlashAuto to Color(0xFFFFD54F)
-                    FlashMode.ON -> Icons.Outlined.FlashOn to Color(0xFFFFD54F)
+                    FlashMode.AUTO -> Icons.Outlined.FlashAuto to accentColor
+                    FlashMode.ON -> Icons.Outlined.FlashOn to accentColor
                     FlashMode.TORCH -> Icons.Outlined.Highlight to Color(0xFFFFB300)
                 }
                 Icon(
                     imageVector = flashIcon,
                     contentDescription = "Flash: ${flashMode.title}",
                     tint = flashColor,
-                    modifier = Modifier.size(19.dp)
+                    modifier = Modifier.size(iconSize)
                 )
             }
+        }
 
-            // 2. Timer or Quick Secondary Action (Circular)
+        val timerAudioButton = @Composable {
             when (cameraMode) {
                 CameraMode.VIDEO, CameraMode.CINEMA -> {
-                    // Audio toggle in Video and Cinema modes
                     IconButton(
                         onClick = onAudioToggle,
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(buttonSize)
                             .clip(CircleShape)
                             .background(Color(0xB21A1A1E))
                             .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
@@ -112,16 +112,15 @@ fun TopControlBar(
                             imageVector = if (isAudioEnabled) Icons.Outlined.Mic else Icons.Outlined.MicOff,
                             contentDescription = if (isAudioEnabled) "Audio On" else "Audio Muted",
                             tint = if (isAudioEnabled) Color.White.copy(alpha = 0.85f) else Color(0xFFFF6B6B),
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier.size(iconSize)
                         )
                     }
                 }
                 else -> {
-                    // Timer button (Photo / Portrait / More)
                     IconButton(
                         onClick = onTimerClick,
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(buttonSize)
                             .clip(CircleShape)
                             .background(Color(0xB21A1A1E))
                             .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
@@ -131,15 +130,17 @@ fun TopControlBar(
                             Icon(
                                 imageVector = if (timerMode == TimerMode.OFF) Icons.Outlined.TimerOff else Icons.Outlined.Timer,
                                 contentDescription = "Timer: ${timerMode.label}",
-                                tint = if (timerMode == TimerMode.OFF) Color.White.copy(alpha = 0.85f) else Color(0xFFFFD54F),
-                                modifier = Modifier.size(19.dp)
+                                tint = if (timerMode == TimerMode.OFF) Color.White.copy(alpha = 0.85f) else accentColor,
+                                modifier = Modifier.size(iconSize)
                             )
                             if (timerMode != TimerMode.OFF) {
                                 Text(
                                     text = timerMode.label,
-                                    color = Color(0xFFFFD54F),
+                                    color = accentColor,
                                     fontSize = 8.sp,
                                     fontWeight = FontWeight.Black,
+                                    maxLines = 1,
+                                    softWrap = false,
                                     modifier = Modifier
                                         .offset(x = 8.dp, y = 6.dp)
                                         .background(Color.Black, shape = CircleShape)
@@ -150,8 +151,9 @@ fun TopControlBar(
                     }
                 }
             }
+        }
 
-            // 3. Primary Mode Badge (Pill)
+        val primaryBadge = @Composable {
             when (cameraMode) {
                 CameraMode.PHOTO -> {
                     val is50M = photoMegapixelMode == PhotoMegapixelMode.M50
@@ -159,10 +161,10 @@ fun TopControlBar(
                         modifier = Modifier
                             .height(34.dp)
                             .clip(RoundedCornerShape(17.dp))
-                            .background(if (is50M) Color(0x33FFD54F) else Color(0xB21A1A1E))
+                            .background(if (is50M) accentColor.copy(alpha = 0.2f) else Color(0xB21A1A1E))
                             .border(
                                 1.dp,
-                                if (is50M) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.22f),
+                                if (is50M) accentColor else Color.White.copy(alpha = 0.22f),
                                 RoundedCornerShape(17.dp)
                             )
                             .clickable { onToggleMegapixelMode() }
@@ -171,10 +173,12 @@ fun TopControlBar(
                     ) {
                         Text(
                             text = photoMegapixelMode.label,
-                            color = if (is50M) Color(0xFFFFD54F) else Color.White,
+                            color = if (is50M) accentColor else Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -184,17 +188,19 @@ fun TopControlBar(
                             .height(34.dp)
                             .clip(RoundedCornerShape(17.dp))
                             .background(Color(0xB21A1A1E))
-                            .border(1.dp, Color(0xFFFFD54F), RoundedCornerShape(17.dp))
+                            .border(1.dp, accentColor, RoundedCornerShape(17.dp))
                             .clickable { onPortraitApertureClick() }
                             .padding(horizontal = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = portraitAperture,
-                            color = Color(0xFFFFD54F),
+                            color = accentColor,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -221,7 +227,9 @@ fun TopControlBar(
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -245,7 +253,9 @@ fun TopControlBar(
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -264,7 +274,9 @@ fun TopControlBar(
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -283,7 +295,9 @@ fun TopControlBar(
                             color = Color(0xFFFFB300),
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -292,17 +306,19 @@ fun TopControlBar(
                         modifier = Modifier
                             .height(34.dp)
                             .clip(RoundedCornerShape(17.dp))
-                            .background(Color(0x33FFD54F))
-                            .border(1.dp, Color(0xFFFFD54F), RoundedCornerShape(17.dp))
+                            .background(accentColor.copy(alpha = 0.2f))
+                            .border(1.dp, accentColor, RoundedCornerShape(17.dp))
                             .padding(horizontal = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "DOLLY",
-                            color = Color(0xFFFFD54F),
+                            color = accentColor,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -321,23 +337,26 @@ fun TopControlBar(
                             color = Color(0xFFFF8A80),
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
             }
+        }
 
-            // 4. Secondary Mode Badge (Pill)
+        val secondaryBadge = @Composable {
             when (cameraMode) {
                 CameraMode.PHOTO -> {
                     Box(
                         modifier = Modifier
                             .height(34.dp)
                             .clip(RoundedCornerShape(17.dp))
-                            .background(if (isRawEnabled) Color(0x33FFD54F) else Color(0xB21A1A1E))
+                            .background(if (isRawEnabled) accentColor.copy(alpha = 0.2f) else Color(0xB21A1A1E))
                             .border(
                                 1.dp,
-                                if (isRawEnabled) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.22f),
+                                if (isRawEnabled) accentColor else Color.White.copy(alpha = 0.22f),
                                 RoundedCornerShape(17.dp)
                             )
                             .clickable { onRawClick() }
@@ -346,10 +365,12 @@ fun TopControlBar(
                     ) {
                         Text(
                             text = "RAW",
-                            color = if (isRawEnabled) Color(0xFFFFD54F) else Color.White,
+                            color = if (isRawEnabled) accentColor else Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -369,7 +390,9 @@ fun TopControlBar(
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -389,7 +412,9 @@ fun TopControlBar(
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -400,17 +425,19 @@ fun TopControlBar(
                             .height(34.dp)
                             .clip(RoundedCornerShape(17.dp))
                             .background(Color(0xB21A1A1E))
-                            .border(1.dp, Color(0xFFFFD54F), RoundedCornerShape(17.dp))
+                            .border(1.dp, accentColor, RoundedCornerShape(17.dp))
                             .clickable { onCinemaSettingsClick() }
                             .padding(horizontal = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "LOG $bitLabel",
-                            color = Color(0xFFFFD54F),
+                            color = accentColor,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -429,7 +456,9 @@ fun TopControlBar(
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -448,7 +477,9 @@ fun TopControlBar(
                             color = Color(0xFFFFB300),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -467,7 +498,9 @@ fun TopControlBar(
                             color = Color.White,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -486,15 +519,17 @@ fun TopControlBar(
                             color = Color.White,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
             }
+        }
 
-            // 5. Grid or Assist Button (Circular)
+        val gridAssistButton = @Composable {
             if (cameraMode == CameraMode.CINEMA) {
-                // EV Exposure Compensation pill in Cinema mode
                 val evVal = cinemaConfig.exposureCompensation
                 val evString = when {
                     evVal > 0 -> "+${evVal / 3f}"
@@ -505,10 +540,10 @@ fun TopControlBar(
                     modifier = Modifier
                         .height(34.dp)
                         .clip(RoundedCornerShape(17.dp))
-                        .background(if (evVal != 0) Color(0x33FFD54F) else Color(0xB21A1A1E))
+                        .background(if (evVal != 0) accentColor.copy(alpha = 0.2f) else Color(0xB21A1A1E))
                         .border(
                             1.dp,
-                            if (evVal != 0) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.22f),
+                            if (evVal != 0) accentColor else Color.White.copy(alpha = 0.22f),
                             RoundedCornerShape(17.dp)
                         )
                         .clickable {
@@ -527,35 +562,60 @@ fun TopControlBar(
                 ) {
                     Text(
                         text = "EV $evString",
-                        color = if (evVal != 0) Color(0xFFFFD54F) else Color.White,
+                        color = if (evVal != 0) accentColor else Color.White,
                         fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             } else {
                 IconButton(
                     onClick = onGridClick,
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(buttonSize)
                         .clip(CircleShape)
                         .background(Color(0xB21A1A1E))
                         .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
-                        .testTag("grid_button")
+                    .testTag("grid_button")
                 ) {
                     Icon(
                         imageVector = if (gridType == GridType.NONE) Icons.Outlined.GridOff else Icons.Outlined.GridOn,
                         contentDescription = "Grid: ${gridType.title}",
-                        tint = if (gridType == GridType.NONE) Color.White.copy(alpha = 0.85f) else Color(0xFFFFD54F),
-                        modifier = Modifier.size(19.dp)
+                        tint = if (gridType == GridType.NONE) Color.White.copy(alpha = 0.85f) else accentColor,
+                        modifier = Modifier.size(iconSize)
                     )
                 }
             }
+        }
 
-            // 6. Settings Gear Button (Circular)
+        val proExpButton = @Composable {
+            Box(
+                modifier = Modifier
+                    .height(34.dp)
+                    .clip(RoundedCornerShape(17.dp))
+                    .background(Color(0xB21A1A1E))
+                    .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(17.dp))
+                    .clickable { onSettingsClick() }
+                    .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "PRO",
+                    color = accentColor,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+        }
+
+        val settingsButton = @Composable {
             IconButton(
                 onClick = onSettingsClick,
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(buttonSize)
                     .clip(CircleShape)
                     .background(Color(0xB21A1A1E))
                     .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
@@ -565,8 +625,36 @@ fun TopControlBar(
                     imageVector = Icons.Outlined.Settings,
                     contentDescription = "Settings",
                     tint = Color.White.copy(alpha = 0.9f),
-                    modifier = Modifier.size(19.dp)
+                    modifier = Modifier.size(iconSize)
                 )
+            }
+        }
+
+        // Render Top Controls according to layoutConfig
+        val visibleItems = layoutConfig.topControlsOrder.filterNot { layoutConfig.hiddenTopControls.contains(it) }
+
+        val horizontalArrangement = when (layoutConfig.topBarAlignment) {
+            TopBarAlignment.SPACE_BETWEEN -> Arrangement.SpaceBetween
+            TopBarAlignment.CENTER -> Arrangement.spacedBy(layoutConfig.topControlsSpacingDp.dp, Alignment.CenterHorizontally)
+            TopBarAlignment.COMPACT_LEFT -> Arrangement.spacedBy(layoutConfig.topControlsSpacingDp.dp, Alignment.Start)
+            TopBarAlignment.COMPACT_RIGHT -> Arrangement.spacedBy(layoutConfig.topControlsSpacingDp.dp, Alignment.End)
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = horizontalArrangement,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            visibleItems.forEach { item ->
+                when (item) {
+                    TopControlItem.FLASH -> flashButton()
+                    TopControlItem.TIMER -> timerAudioButton()
+                    TopControlItem.GRID -> gridAssistButton()
+                    TopControlItem.RESOLUTION -> primaryBadge()
+                    TopControlItem.RAW -> secondaryBadge()
+                    TopControlItem.PRO_EXP -> proExpButton()
+                    TopControlItem.SETTINGS -> settingsButton()
+                }
             }
         }
     }

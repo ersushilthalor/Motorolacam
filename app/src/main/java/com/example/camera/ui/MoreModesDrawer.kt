@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -196,7 +197,9 @@ fun MoreModesDrawer(
                             text = "Camera System Settings",
                             color = Color.White,
                             fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                     Icon(
@@ -250,7 +253,8 @@ private fun MoreModeCard(
             color = Color.White,
             fontSize = 12.5.sp,
             fontWeight = FontWeight.Bold,
-            maxLines = 1
+            maxLines = 1,
+            softWrap = false
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
@@ -258,7 +262,8 @@ private fun MoreModeCard(
             color = Color.White.copy(alpha = 0.65f),
             fontSize = 10.sp,
             lineHeight = 13.sp,
-            maxLines = 2
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

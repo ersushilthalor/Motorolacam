@@ -63,6 +63,18 @@ enum class GridType(val title: String) {
     LEVEL("Level Horizon")
 }
 
+enum class CameraAspectRatio(
+    val label: String,
+    val ratioValue: Float, // height / width in portrait
+    val isVideoStandard: Boolean = false
+) {
+    RATIO_9_16("9:16", 16f / 9f, true),
+    RATIO_16_9("16:9", 16f / 9f, true),
+    RATIO_4_3("4:3", 4f / 3f, false),
+    RATIO_1_1("1:1", 1f, false),
+    RATIO_FULL("FULL", 0f, true)
+}
+
 enum class WhiteBalanceMode(val title: String, val camera2Mode: Int, val shortLabel: String = title) {
     AUTO("Auto", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_AUTO, "AUTO"),
     INCANDESCENT("Incandescent", android.hardware.camera2.CameraMetadata.CONTROL_AWB_MODE_INCANDESCENT, "INC"),

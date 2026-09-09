@@ -70,21 +70,26 @@ fun Viewfinder(
         val containerWidth = maxWidth
         val containerHeight = maxHeight
 
-        // Aspect ratio is Height / Width in Portrait mode (e.g. 4/3 = 1.333, 16/9 = 1.777, 20/9 = 2.222)
+        // Aspect ratio is Height / Width in Portrait mode (e.g. 4/3 = 1.333, 16/9 = 1.777, 1/1 = 1.0)
         // Ensure preview is letterboxed/pillarboxed inside container without any stretch/distortion
+        val containerRatio = if (containerWidth.value > 0) containerHeight.value / containerWidth.value else 1.333f
+        val effectiveRatio = when {
+            aspectRatio <= 0.1f -> containerRatio // Full screen ratio
+            aspectRatio < 1.0f -> 1f / aspectRatio // Invert if width / height was passed
+            else -> aspectRatio
+        }
+
         val targetWidth: androidx.compose.ui.unit.Dp
         val targetHeight: androidx.compose.ui.unit.Dp
 
-        val containerRatio = containerHeight.value / containerWidth.value
-
-        if (containerRatio > aspectRatio) {
+        if (containerRatio > effectiveRatio) {
             // Container is taller than camera preview -> fit width, letterbox top/bottom
             targetWidth = containerWidth
-            targetHeight = containerWidth * aspectRatio
+            targetHeight = containerWidth * effectiveRatio
         } else {
             // Container is wider than camera preview -> fit height, pillarbox left/right
             targetHeight = containerHeight
-            targetWidth = containerHeight / aspectRatio
+            targetWidth = containerHeight / effectiveRatio
         }
 
         Box(

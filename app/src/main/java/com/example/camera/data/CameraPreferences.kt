@@ -475,4 +475,17 @@ class CameraPreferences(context: Context) {
         set(value) {
             dualVideoLayout = value.layout
         }
+
+    var uiCustomizationState: UiCustomizationState
+        get() {
+            val jsonStr = prefs.getString("pref_ui_customization_state", "") ?: ""
+            return if (jsonStr.isNotBlank()) {
+                UiCustomizationState.fromJson(jsonStr)
+            } else {
+                UiCustomizationState()
+            }
+        }
+        set(value) {
+            prefs.edit().putString("pref_ui_customization_state", value.toJson()).apply()
+        }
 }

@@ -208,34 +208,16 @@ class Camera2Engine(private val context: Context) {
      * Detects all real physical and logical lenses available on the device,
      * including hidden auxiliary cameras, multi-camera physical streams, and integrated ultra-wide zoom ratios.
      */
-    fun detectHardwareLenses(forceDeepScan: Boolean = true): Int {
+    fun detectHardwareLenses(forceDeepScan: Boolean = false): Int {
         try {
-            val officialIds = cameraManager.cameraIdList.toList()
+            val officialIds = try {
+                cameraManager.cameraIdList.toList()
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed to get cameraIdList", t)
+                emptyList<String>()
+            }
             val candidateIds = linkedSetOf<String>()
             candidateIds.addAll(officialIds)
-
-            // Forceful deep probe of hidden OEM IDs (Moto, Xiaomi, Samsung, OnePlus, Vivo, Oppo)
-            if (forceDeepScan) {
-                val probeList = mutableListOf<String>()
-                // Numeric IDs 0..30, 40..65, 100..115
-                for (i in 0..30) probeList.add(i.toString())
-                for (i in 40..65) probeList.add(i.toString())
-                for (i in 100..115) probeList.add(i.toString())
-                // Aux vendor naming patterns
-                probeList.addAll(listOf("aux_0", "aux_1", "aux_2", "camera_0", "camera_1", "camera_2", "rear_0", "rear_1", "front_0", "front_1"))
-
-                for (id in probeList) {
-                    if (!candidateIds.contains(id)) {
-                        try {
-                            cameraManager.getCameraCharacteristics(id)
-                            candidateIds.add(id)
-                            Log.d(TAG, "Force deep probe found hidden camera ID: $id")
-                        } catch (ignored: Exception) {
-                            // Camera ID not present or unsupported
-                        }
-                    }
-                }
-            }
 
             val lenses = mutableListOf<LensInfo>()
             val processedPhysicalIds = mutableSetOf<String>()
@@ -243,13 +225,13 @@ class Camera2Engine(private val context: Context) {
             val primaryBackId = candidateIds.firstOrNull { id ->
                 try {
                     cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
-                } catch (e: Exception) { false }
-            } ?: "0"
+                } catch (t: Throwable) { false }
+            } ?: candidateIds.firstOrNull() ?: "0"
 
             val primaryFrontId = candidateIds.firstOrNull { id ->
                 try {
                     cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
-                } catch (e: Exception) { false }
+                } catch (t: Throwable) { false }
             } ?: "1"
 
             for (id in candidateIds) {
@@ -1058,7 +1040,12 @@ class Camera2Engine(private val context: Context) {
                         val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
                         val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
                         val maxZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 8f
-                        val newZoom = dollyZoomEngine.processFrame(result, sensorRect, maxZoom)
+                        val newZoom = dollyZoomEngine.processFrame(
+                            result = result,
+                            sensorRect = sensorRect,
+                            minAvailableZoom = 1.0f,
+                            maxAvailableZoom = maxZoom
+                        )
                         if (newZoom != null) {
                             applyContinuousDollyZoom(newZoom)
                         }
@@ -1070,8 +1057,11 @@ class Camera2Engine(private val context: Context) {
 
     private fun applyContinuousDollyZoom(zoom: Float) {
         val now = System.currentTimeMillis()
-        if (now - lastDollyApplyTime < 45) return
+        if (now - lastDollyApplyTime < 50) return
         lastDollyApplyTime = now
+
+        currentZoom = zoom
+        _currentZoom.value = zoom
 
         val session = captureSession ?: return
         val builder = previewRequestBuilder ?: return
@@ -1540,6 +1530,7 @@ class Camera2Engine(private val context: Context) {
         val lens = _selectedLens.value ?: return
         val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
         val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+        val maxZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 8f
         val lastResult = lastCaptureResult
         val faces = lastResult?.get(CaptureResult.STATISTICS_FACES)
         val diopters = lastResult?.get(CaptureResult.LENS_FOCUS_DISTANCE) ?: 0f
@@ -1547,12 +1538,20 @@ class Camera2Engine(private val context: Context) {
             currentZoom = currentZoom,
             currentFace = faces?.firstOrNull(),
             lensFocusDiopters = diopters,
-            sensorRect = sensorRect
+            sensorRect = sensorRect,
+            minZoom = 1.0f,
+            maxZoom = maxZoom
         )
     }
 
     fun resetDollyZoom() {
         dollyZoomEngine.reset()
+    }
+
+    fun setPreviewAspectRatio(ratio: Float) {
+        if (ratio > 0f) {
+            _previewAspectRatio.value = ratio
+        }
     }
 
     private fun getDeviceRotationDegrees(): Int {
