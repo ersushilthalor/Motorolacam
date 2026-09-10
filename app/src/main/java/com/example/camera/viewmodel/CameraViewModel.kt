@@ -47,19 +47,9 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     val hybridStabilizationConfig: StateFlow<HybridStabilizationConfig> = engine.hybridStabilizationConfig
 
-    val isRecordingVideo: StateFlow<Boolean> = combine(
-        engine.isRecordingVideo,
-        dualCameraManager.isRecording
-    ) { engRec, dualRec ->
-        engRec || dualRec
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
-    val videoDurationSeconds: StateFlow<Int> = combine(
-        engine.videoDurationSeconds,
-        dualCameraManager.recordingDurationSeconds
-    ) { engDur, dualDur ->
-        if (_cameraMode.value == CameraMode.DUAL_VIDEO) dualDur else engDur
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    // Mode & Base State must be initialized before combined flows
+    private val _cameraMode = MutableStateFlow(preferences.cameraMode)
+    val cameraMode: StateFlow<CameraMode> = _cameraMode.asStateFlow()
 
     private val _selectedAspectRatio = MutableStateFlow(CameraAspectRatio.RATIO_9_16)
     val selectedAspectRatio: StateFlow<CameraAspectRatio> = _selectedAspectRatio.asStateFlow()
@@ -67,9 +57,20 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val _tapFocusConfig = MutableStateFlow(preferences.tapFocusConfig)
     val tapFocusConfig: StateFlow<TapFocusConfig> = _tapFocusConfig.asStateFlow()
 
-    // Mode
-    private val _cameraMode = MutableStateFlow(preferences.cameraMode)
-    val cameraMode: StateFlow<CameraMode> = _cameraMode.asStateFlow()
+    val isRecordingVideo: StateFlow<Boolean> = combine(
+        engine.isRecordingVideo,
+        dualCameraManager.isRecording
+    ) { engRec, dualRec ->
+        engRec || dualRec
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val videoDurationSeconds: StateFlow<Int> = combine(
+        engine.videoDurationSeconds,
+        dualCameraManager.recordingDurationSeconds,
+        _cameraMode
+    ) { engDur, dualDur, mode ->
+        if (mode == CameraMode.DUAL_VIDEO) dualDur else engDur
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     // Portrait Mode Controls & Pipeline State
     private val _portraitConfig = MutableStateFlow(
@@ -96,7 +97,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     ) { lenses, selected ->
         val currentFacing = selected?.facing ?: android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK
         lenses.filter { it.facing == currentFacing }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val selectedLens: StateFlow<LensInfo?> = engine.selectedLens
 
@@ -295,7 +296,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             res?.width == 1280 -> VideoQualityOption.HD_720_30
             else -> VideoQualityOption.UHD_4K_30
         }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, VideoQualityOption.UHD_4K_30)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VideoQualityOption.UHD_4K_30)
 
     private var timerJob: Job? = null
     private var focusDismissJob: Job? = null
