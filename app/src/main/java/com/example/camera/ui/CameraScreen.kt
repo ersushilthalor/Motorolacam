@@ -76,6 +76,12 @@ fun CameraScreen(
         }
     }
 
+    LaunchedEffect(hasCameraPermission) {
+        if (hasCameraPermission) {
+            viewModel.safeInitializeCamera()
+        }
+    }
+
     if (!hasCameraPermission) {
         CameraPermissionPrompt(
             onRequestPermission = {

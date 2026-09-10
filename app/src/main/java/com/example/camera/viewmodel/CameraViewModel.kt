@@ -242,6 +242,22 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     val isAeLocked: StateFlow<Boolean> = engine.isAeLockedFlow
     val isAfLocked: StateFlow<Boolean> = engine.isAfLockedFlow
 
+    val isCameraInitialized: StateFlow<Boolean> = engine.isCameraInitialized
+    val cameraInitError: StateFlow<String?> = engine.cameraInitError
+
+    fun safeInitializeCamera(onResult: (success: Boolean, errorMessage: String?) -> Unit = { _, _ -> }) {
+        viewModelScope.launch(Dispatchers.Default) {
+            engine.safeInitializeCamera { success, error ->
+                if (success) {
+                    dualCameraManager.safeInitializeDualCamera()
+                }
+                viewModelScope.launch(Dispatchers.Main) {
+                    onResult(success, error)
+                }
+            }
+        }
+    }
+
     private val _isRawCaptureEnabled = MutableStateFlow(preferences.isRawEnabled)
     val isRawCaptureEnabled: StateFlow<Boolean> = _isRawCaptureEnabled.asStateFlow()
 

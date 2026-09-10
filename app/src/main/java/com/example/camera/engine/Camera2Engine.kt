@@ -47,8 +47,8 @@ private const val TAG = "Camera2Engine"
 
 class Camera2Engine(private val context: Context) {
 
-    private val cameraManager: CameraManager =
-        context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    private val cameraManager: CameraManager? =
+        context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
 
     // Background threads
     private var backgroundThread: HandlerThread? = null
@@ -68,6 +68,23 @@ class Camera2Engine(private val context: Context) {
     private var videoRecordingFileDescriptor: ParcelFileDescriptor? = null
     private var currentRecordingTempFile: File? = null
     private var currentVideoUri: Uri? = null
+
+    // Initialization & Safety States
+    private val _isCameraInitialized = MutableStateFlow(false)
+    val isCameraInitialized: StateFlow<Boolean> = _isCameraInitialized.asStateFlow()
+
+    private val _cameraInitError = MutableStateFlow<String?>(null)
+    val cameraInitError: StateFlow<String?> = _cameraInitError.asStateFlow()
+
+    fun getCharacteristics(cameraId: String): CameraCharacteristics? {
+        val mgr = cameraManager ?: return null
+        return try {
+            mgr.getCameraCharacteristics(cameraId)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to get characteristics for camera $cameraId", t)
+            null
+        }
+    }
 
     // State Flows
     private val _availableLenses = MutableStateFlow<List<LensInfo>>(emptyList())
@@ -188,14 +205,97 @@ class Camera2Engine(private val context: Context) {
         videoHdrEngine.onStateChangedListener = { state ->
             _videoHdrState.value = state
         }
-        startBackgroundThread()
-        detectHardwareLenses()
-        updateStorageStats()
+        // ZERO hardware calls during construction/init!
+        // Background threads, camera detection, and initialization are performed lazily
+        // via safeInitializeCamera() only after CAMERA permission is confirmed.
+    }
+
+    /**
+     * Centralized, safe camera initialization function.
+     * Guaranteed to never throw an uncaught exception to the caller.
+     * Must be called only after CAMERA permission is granted.
+     */
+    fun safeInitializeCamera(onResult: (success: Boolean, errorMessage: String?) -> Unit = { _, _ -> }) {
+        if (_isCameraInitialized.value) {
+            Log.d(TAG, "safeInitializeCamera: Already initialized")
+            onResult(true, null)
+            return
+        }
+
+        try {
+            // 1. Verify context & permission
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                Log.w(TAG, "safeInitializeCamera: CAMERA permission not granted")
+                _cameraInitError.value = "Camera permission not granted"
+                onResult(false, _cameraInitError.value)
+                return
+            }
+
+            // 2. Safely obtain CameraManager
+            val mgr = cameraManager ?: run {
+                Log.e(TAG, "safeInitializeCamera: Camera service unavailable on this device")
+                _cameraInitError.value = "Camera service is unavailable on this device"
+                onResult(false, _cameraInitError.value)
+                return
+            }
+
+            // 3. Start background thread safely with UncaughtExceptionHandler
+            startBackgroundThread()
+
+            // 4. Enumerate camera IDs inside try/catch
+            val officialIds = try {
+                mgr.cameraIdList.toList()
+            } catch (t: Throwable) {
+                Log.e(TAG, "safeInitializeCamera: Failed to enumerate camera IDs", t)
+                emptyList<String>()
+            }
+
+            if (officialIds.isEmpty()) {
+                Log.w(TAG, "safeInitializeCamera: No camera IDs reported by device")
+                _cameraInitError.value = "No camera hardware detected on this device"
+                _isCameraInitialized.value = true
+                onResult(false, _cameraInitError.value)
+                return
+            }
+
+            // 5. Run physical camera/lens detection
+            try {
+                detectHardwareLenses()
+            } catch (t: Throwable) {
+                Log.e(TAG, "safeInitializeCamera: Error during lens detection", t)
+            }
+
+            // 6. Update storage stats
+            try {
+                updateStorageStats()
+            } catch (t: Throwable) {
+                Log.w(TAG, "safeInitializeCamera: Error updating storage stats", t)
+            }
+
+            _isCameraInitialized.value = true
+            _cameraInitError.value = null
+
+            // 7. If surface texture is already available, start camera
+            if (previewSurfaceTexture != null) {
+                startCamera()
+            }
+
+            onResult(true, null)
+        } catch (t: Throwable) {
+            Log.e(TAG, "safeInitializeCamera: Critical failure during camera initialization", t)
+            val msg = "Camera initialization failed: ${t.localizedMessage ?: t.javaClass.simpleName}"
+            _cameraInitError.value = msg
+            _isCameraInitialized.value = false
+            onResult(false, msg)
+        }
     }
 
     private fun startBackgroundThread() {
         if (backgroundThread == null) {
             backgroundThread = HandlerThread("Camera2Background").apply {
+                uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { thread, throwable ->
+                    Log.e(TAG, "Uncaught exception on Camera2Background: ${thread.name}", throwable)
+                }
                 start()
                 backgroundHandler = Handler(looper)
             }
@@ -218,9 +318,10 @@ class Camera2Engine(private val context: Context) {
      * including hidden auxiliary cameras, multi-camera physical streams, and integrated ultra-wide zoom ratios.
      */
     fun detectHardwareLenses(forceDeepScan: Boolean = false): Int {
+        val mgr = cameraManager ?: return 0
         try {
             val officialIds = try {
-                cameraManager.cameraIdList.toList()
+                mgr.cameraIdList.toList()
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to get cameraIdList", t)
                 emptyList<String>()
@@ -233,19 +334,19 @@ class Camera2Engine(private val context: Context) {
 
             val primaryBackId = candidateIds.firstOrNull { id ->
                 try {
-                    cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+                    getCharacteristics(id)?.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
                 } catch (t: Throwable) { false }
             } ?: candidateIds.firstOrNull() ?: "0"
 
             val primaryFrontId = candidateIds.firstOrNull { id ->
                 try {
-                    cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+                    getCharacteristics(id)?.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
                 } catch (t: Throwable) { false }
             } ?: "1"
 
             for (id in candidateIds) {
                 try {
-                    val chars = cameraManager.getCameraCharacteristics(id)
+                    val chars = getCharacteristics(id) ?: continue
                     val facing = chars.get(CameraCharacteristics.LENS_FACING) ?: continue
                     val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS) ?: floatArrayOf(4.0f)
                     val apertures = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES) ?: floatArrayOf(1.8f)
@@ -333,7 +434,7 @@ class Camera2Engine(private val context: Context) {
                             if (!processedPhysicalIds.contains(physId)) {
                                 processedPhysicalIds.add(physId)
                                 try {
-                                    val physChars = cameraManager.getCameraCharacteristics(physId)
+                                    val physChars = getCharacteristics(physId) ?: continue
                                     val pFacing = physChars.get(CameraCharacteristics.LENS_FACING) ?: facing
                                     val pFocals = physChars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS) ?: floatArrayOf(4f)
                                     val pApertures = physChars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES) ?: floatArrayOf(1.8f)
@@ -560,8 +661,8 @@ class Camera2Engine(private val context: Context) {
 
             Log.i(TAG, "Total discovered lenses after deep scan: ${sortedLenses.size}")
             return sortedLenses.size
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to detect hardware lenses", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to detect hardware lenses", t)
             return 0
         }
     }
@@ -571,7 +672,7 @@ class Camera2Engine(private val context: Context) {
      */
     fun inspectCapabilities(cameraId: String) {
         try {
-            val chars = cameraManager.getCameraCharacteristics(cameraId)
+            val chars = getCharacteristics(cameraId) ?: return
             videoHdrEngine.onCameraConfigured(chars)
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
 
@@ -724,8 +825,8 @@ class Camera2Engine(private val context: Context) {
             }
 
             updatePreviewAspectRatio()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error inspecting capabilities for camera $cameraId", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error inspecting capabilities for camera $cameraId", t)
         }
     }
 
@@ -848,7 +949,9 @@ class Camera2Engine(private val context: Context) {
     fun setPreviewSurfaceTexture(texture: SurfaceTexture?) {
         previewSurfaceTexture = texture
         if (texture != null) {
-            startCamera()
+            if (_isCameraInitialized.value) {
+                startCamera()
+            }
         } else {
             closeCamera()
         }
@@ -859,13 +962,24 @@ class Camera2Engine(private val context: Context) {
      */
     @SuppressLint("MissingPermission")
     fun startCamera() {
+        if (!_isCameraInitialized.value) {
+            Log.d(TAG, "startCamera deferred: camera not initialized yet")
+            return
+        }
+
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "startCamera aborted: CAMERA permission not granted")
+            return
+        }
+
         val lens = _selectedLens.value ?: return
         val texture = previewSurfaceTexture ?: return
+        val mgr = cameraManager ?: return
 
         startBackgroundThread()
 
         try {
-            val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+            val chars = getCharacteristics(lens.cameraId) ?: return
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return
 
             // Pick optimal preview size matching selected aspect ratio and viewfinderResolution level
@@ -891,6 +1005,9 @@ class Camera2Engine(private val context: Context) {
             _previewBufferSize.value = optimalPreviewSize
 
             texture.setDefaultBufferSize(optimalPreviewSize.width, optimalPreviewSize.height)
+            try {
+                previewSurface?.release()
+            } catch (ignored: Throwable) {}
             previewSurface = Surface(texture)
 
             // Setup ImageReader for Photo mode
@@ -904,7 +1021,7 @@ class Camera2Engine(private val context: Context) {
                 isStartingCamera = true
             }
 
-            cameraManager.openCamera(lens.cameraId, object : CameraDevice.StateCallback() {
+            mgr.openCamera(lens.cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     cameraOpenRetryCount = 0
                     cameraDevice = camera
@@ -957,8 +1074,8 @@ class Camera2Engine(private val context: Context) {
                     }
                 }
             }, backgroundHandler)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start camera", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to start camera", t)
             synchronized(cameraLifecycleLock) {
                 isStartingCamera = false
             }
@@ -967,8 +1084,15 @@ class Camera2Engine(private val context: Context) {
     }
 
     private fun setupImageReaders(cameraId: String) {
-        imageReaderJpeg?.close()
-        imageReaderRaw?.close()
+        try {
+            imageReaderJpeg?.close()
+        } catch (ignored: Throwable) {}
+        imageReaderJpeg = null
+
+        try {
+            imageReaderRaw?.close()
+        } catch (ignored: Throwable) {}
+        imageReaderRaw = null
 
         val caps = _capabilities.value
         val is50MMode = photoMegapixelMode == PhotoMegapixelMode.M50
@@ -980,21 +1104,34 @@ class Camera2Engine(private val context: Context) {
             _selectedPhotoResolution.value ?: CameraResolution(4000, 3000)
         }
 
-        imageReaderJpeg = ImageReader.newInstance(
-            photoRes.width,
-            photoRes.height,
-            ImageFormat.JPEG,
-            4
-        )
+        try {
+            imageReaderJpeg = ImageReader.newInstance(
+                photoRes.width,
+                photoRes.height,
+                ImageFormat.JPEG,
+                2
+            )
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to create ImageReader with ${photoRes.width}x${photoRes.height}, falling back to 1080p", t)
+            try {
+                imageReaderJpeg = ImageReader.newInstance(1920, 1080, ImageFormat.JPEG, 2)
+            } catch (t2: Throwable) {
+                Log.e(TAG, "Failed fallback ImageReader", t2)
+            }
+        }
 
         if (caps.supportsRaw && isRawCaptureEnabled && caps.supportedRawResolutions.isNotEmpty()) {
             val rawRes = caps.supportedRawResolutions.first()
-            imageReaderRaw = ImageReader.newInstance(
-                rawRes.width,
-                rawRes.height,
-                ImageFormat.RAW_SENSOR,
-                4
-            )
+            try {
+                imageReaderRaw = ImageReader.newInstance(
+                    rawRes.width,
+                    rawRes.height,
+                    ImageFormat.RAW_SENSOR,
+                    2
+                )
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed to create RAW ImageReader", t)
+            }
         }
     }
 
@@ -1061,7 +1198,7 @@ class Camera2Engine(private val context: Context) {
                 val lens = _selectedLens.value
                 if (lens != null) {
                     try {
-                        val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+                        val chars = getCharacteristics(lens.cameraId) ?: return
                         val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
                         val maxZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 8f
                         val newZoom = dollyZoomEngine.processFrame(
@@ -1093,8 +1230,8 @@ class Camera2Engine(private val context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, zoom)
             } else {
-                val chars = cameraManager.getCameraCharacteristics(_selectedLens.value?.cameraId ?: "0")
-                val activeArray = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+                val chars = getCharacteristics(_selectedLens.value?.cameraId ?: "0")
+                val activeArray = chars?.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
                 if (activeArray != null) {
                     val cropW = (activeArray.width() / zoom).toInt()
                     val cropH = (activeArray.height() / zoom).toInt()
@@ -1266,8 +1403,7 @@ class Camera2Engine(private val context: Context) {
     private fun applyZoom(builder: CaptureRequest.Builder) {
         val lens = _selectedLens.value ?: return
         try {
-            val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
-
+            val chars = getCharacteristics(lens.cameraId) ?: return
             // On Android 11+ (API 30+), CONTROL_ZOOM_RATIO natively switches between physical sensors
             // (e.g. 0.5x Ultra-Wide, 1.0x Main Wide, 3.0x Telephoto) and applies smooth optical/digital scaling
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -1483,7 +1619,7 @@ class Camera2Engine(private val context: Context) {
         val builder = previewRequestBuilder ?: return
 
         try {
-            val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+            val chars = getCharacteristics(lens.cameraId) ?: return
             val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return
 
             val focusAreaSize = 240
@@ -1552,7 +1688,7 @@ class Camera2Engine(private val context: Context) {
 
     fun calibrateDollyZoom() {
         val lens = _selectedLens.value ?: return
-        val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+        val chars = getCharacteristics(lens.cameraId) ?: return
         val sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
         val maxZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 8f
         val lastResult = lastCaptureResult
@@ -1613,8 +1749,8 @@ class Camera2Engine(private val context: Context) {
         val lens = _selectedLens.value ?: return 90
         val isFront = lens.facing == CameraCharacteristics.LENS_FACING_FRONT
         val sensorOrientation = try {
-            val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
-            chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: (if (isFront) 270 else 90)
+            val chars = getCharacteristics(lens.cameraId)
+            chars?.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: (if (isFront) 270 else 90)
         } catch (e: Exception) {
             if (isFront) 270 else 90
         }
@@ -1634,8 +1770,8 @@ class Camera2Engine(private val context: Context) {
         val lens = _selectedLens.value ?: return 90
         val isFront = lens.facing == CameraCharacteristics.LENS_FACING_FRONT
         val sensorOrientation = try {
-            val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
-            chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: (if (isFront) 270 else 90)
+            val chars = getCharacteristics(lens.cameraId)
+            chars?.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: (if (isFront) 270 else 90)
         } catch (e: Exception) {
             if (isFront) 270 else 90
         }
@@ -1865,8 +2001,10 @@ class Camera2Engine(private val context: Context) {
                         engineScope.launch(Dispatchers.IO) {
                             val lens = _selectedLens.value
                             if (lens != null) {
-                                val characteristics = cameraManager.getCameraCharacteristics(lens.cameraId)
-                                saveRawToMediaStore(rawImage, characteristics)
+                                val characteristics = getCharacteristics(lens.cameraId)
+                                if (characteristics != null) {
+                                    saveRawToMediaStore(rawImage, characteristics)
+                                }
                             }
                             rawImage.close()
                         }
@@ -1929,8 +2067,8 @@ class Camera2Engine(private val context: Context) {
             // Enable ultra-high resolution sensor remosaic mode if physical hardware supports it (Android 12+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 try {
-                    val chars = cameraManager.getCameraCharacteristics(camera.id)
-                    val sensorCaps = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: intArrayOf()
+                    val chars = getCharacteristics(camera.id)
+                    val sensorCaps = chars?.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: intArrayOf()
                     if (sensorCaps.contains(CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR)) {
                         captureBuilder.set(CaptureRequest.SENSOR_PIXEL_MODE, CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION)
                     }
@@ -2305,7 +2443,7 @@ class Camera2Engine(private val context: Context) {
 
             // Ensure preview surface buffer matches video 16:9 ratio exactly to prevent any vertical stretch
             previewSurfaceTexture?.let { texture ->
-                val chars = cameraManager.getCameraCharacteristics(lens.cameraId)
+                val chars = getCharacteristics(lens.cameraId) ?: return@let
                 val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
                 val previewSizes = map?.getOutputSizes(SurfaceTexture::class.java) ?: emptyArray()
                 val matchingSize = previewSizes
@@ -2674,8 +2812,8 @@ class Camera2Engine(private val context: Context) {
     }
 
     fun restartCamera() {
-        if (previewSurfaceTexture == null) {
-            Log.d(TAG, "Skipping restartCamera: previewSurfaceTexture is not attached")
+        if (!_isCameraInitialized.value || previewSurfaceTexture == null) {
+            Log.d(TAG, "Skipping restartCamera: not initialized or previewSurfaceTexture is null")
             return
         }
         backgroundHandler?.post {

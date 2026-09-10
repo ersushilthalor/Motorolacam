@@ -40,7 +40,8 @@ class DualCameraManager(private val context: Context) {
         private const val TAG = "DualCameraManager"
     }
 
-    private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    private val cameraManager: CameraManager? =
+        context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
 
     private val _config = MutableStateFlow(DualVideoConfig())
     val config: StateFlow<DualVideoConfig> = _config.asStateFlow()
@@ -70,12 +71,30 @@ class DualCameraManager(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     init {
-        checkHardwareSupport()
+        // ZERO hardware calls during construction!
+        // Dual camera detection is initialized lazily via safeInitializeDualCamera()
+        // only after CAMERA permission is confirmed.
+    }
+
+    fun safeInitializeDualCamera() {
+        try {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                return
+            }
+            checkHardwareSupport()
+        } catch (t: Throwable) {
+            Log.w(TAG, "safeInitializeDualCamera ignored failure", t)
+        }
     }
 
     private fun startBackgroundThread() {
         if (backgroundThread == null) {
-            backgroundThread = HandlerThread("DualCameraBackground").apply { start() }
+            backgroundThread = HandlerThread("DualCameraBackground").apply {
+                uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { thread, throwable ->
+                    Log.e(TAG, "Uncaught exception on DualCameraBackground: ${thread.name}", throwable)
+                }
+                start()
+            }
             backgroundHandler = Handler(backgroundThread!!.looper)
         }
     }
@@ -90,12 +109,20 @@ class DualCameraManager(private val context: Context) {
     }
 
     private fun checkHardwareSupport() {
+        val mgr = cameraManager ?: run {
+            _config.value = _config.value.copy(
+                isConcurrentSupported = false,
+                statusMessage = "CameraManager service is unavailable"
+            )
+            return
+        }
+
         startBackgroundThread()
 
         // 1. Android 11+ Concurrent Camera IDs
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
-                val concurrentSets = cameraManager.concurrentCameraIds
+                val concurrentSets = mgr.concurrentCameraIds
                 if (concurrentSets.isNotEmpty()) {
                     val firstSet = concurrentSets.firstOrNull()?.toList() ?: emptyList()
                     val primary = firstSet.getOrNull(0) ?: "0"
@@ -116,12 +143,12 @@ class DualCameraManager(private val context: Context) {
 
         // 2. Fallback check for dual physical camera IDs (e.g. Back + Front)
         try {
-            val cameraIds = cameraManager.cameraIdList
+            val cameraIds = mgr.cameraIdList
             var backId: String? = null
             var frontId: String? = null
             for (id in cameraIds) {
                 try {
-                    val chars = cameraManager.getCameraCharacteristics(id)
+                    val chars = mgr.getCameraCharacteristics(id)
                     val facing = chars.get(CameraCharacteristics.LENS_FACING)
                     if (facing == CameraCharacteristics.LENS_FACING_BACK && backId == null) {
                         backId = id
@@ -195,10 +222,14 @@ class DualCameraManager(private val context: Context) {
     }
 
     private fun openPrimaryCamera() {
+        val mgr = cameraManager ?: run {
+            Log.e(TAG, "CameraManager unavailable for primary camera")
+            return
+        }
         startBackgroundThread()
         val cameraId = _config.value.primaryCameraId
         try {
-            cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
+            mgr.openCamera(cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     primaryCameraDevice = camera
                     createPrimarySession()
@@ -217,16 +248,20 @@ class DualCameraManager(private val context: Context) {
             }, backgroundHandler)
         } catch (e: SecurityException) {
             Log.e(TAG, "Camera permission missing for primary camera", e)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error opening primary camera $cameraId", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error opening primary camera $cameraId", t)
         }
     }
 
     private fun openSecondaryCamera() {
+        val mgr = cameraManager ?: run {
+            Log.e(TAG, "CameraManager unavailable for secondary camera")
+            return
+        }
         startBackgroundThread()
         val cameraId = _config.value.secondaryCameraId
         try {
-            cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
+            mgr.openCamera(cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     secondaryCameraDevice = camera
                     createSecondarySession()
@@ -245,8 +280,8 @@ class DualCameraManager(private val context: Context) {
             }, backgroundHandler)
         } catch (e: SecurityException) {
             Log.e(TAG, "Camera permission missing for secondary camera", e)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error opening secondary camera $cameraId", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error opening secondary camera $cameraId", t)
         }
     }
 

@@ -6,12 +6,31 @@ import com.example.camera.model.LensType
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class ExampleUnitTest {
+    @Test
+    fun testMainActivityLaunch() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java)
+        controller.setup()
+        assertNotNull(controller.get())
+    }
+
+    @Test
+    fun testMainActivityLaunchWithPermissionsGranted() {
+        val app = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
+        val shadowApp = org.robolectric.Shadows.shadowOf(app)
+        shadowApp.grantPermissions(android.Manifest.permission.CAMERA, android.Manifest.permission.RECORD_AUDIO)
+
+        val controller = Robolectric.buildActivity(MainActivity::class.java)
+        controller.setup()
+        assertNotNull(controller.get())
+    }
+
     @Test
     fun testCameraResolutionCalculations() {
         val res43 = CameraResolution(4000, 3000)
